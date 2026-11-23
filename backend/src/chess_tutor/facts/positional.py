@@ -247,10 +247,13 @@ def _repeated_piece_moves(board: chess.Board, color: chess.Color) -> list[chess.
     for move in board.move_stack:
         mover = replay.color_at(move.from_square)
         count = move_counts.pop(move.from_square, 0) + 1
+        started_in_book = is_on_book_line(replay)
         replay.push(move)
         if mover == color:
-            # A repeat that stays in book is theory (Ruy Lopez Bb5-a4), so it does not count.
-            move_counts[move.to_square] = 1 if is_on_book_line(replay) else count
+            # A repeat played from a book position into a book position is theory
+            # (Ruy Lopez Bb5-a4), so it does not count.
+            in_book = started_in_book and is_on_book_line(replay)
+            move_counts[move.to_square] = 1 if in_book else count
         else:
             move_counts.pop(move.to_square, None)
     return sorted(

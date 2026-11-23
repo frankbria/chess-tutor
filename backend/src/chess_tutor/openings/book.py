@@ -31,7 +31,8 @@ def _book_lines(data_directory: Path) -> Iterator[tuple[Opening, list[str]]]:
                     if not token.endswith("."):
                         board.push_san(token)
                         keys.append(position_key(board))
-                yield Opening(row["eco"], row["name"]), keys
+                if keys:  # a blank pgn cell would otherwise break every lookup
+                    yield Opening(row["eco"], row["name"]), keys
 
 
 @lru_cache(maxsize=1)
