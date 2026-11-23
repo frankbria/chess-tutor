@@ -106,7 +106,7 @@ def _king_issues(board: chess.Board, color: chess.Color, thresholds: PhaseThresh
         not castled
         and board.fullmove_number >= UNCASTLED_FROM_MOVE
         and on_back_rank
-        and king_file == chess.square_file(chess.E1)
+        and chess.square_file(chess.D1) <= king_file <= chess.square_file(chess.F1)
         and _centre_is_open(board)
     ):
         issues.append("the king is still uncastled in the centre with the centre open")
@@ -177,6 +177,7 @@ def _is_backward(board: chess.Board, color: chess.Color, pawn: chess.Square) -> 
     rank = _relative_rank(color, pawn)
     if _is_isolated(board, color, pawn):
         return False
+    # A friendly pawn level or behind on an adjacent file can advance to support it.
     if any(
         _relative_rank(color, friend) <= rank
         for other in _adjacent_files(file)
@@ -313,13 +314,14 @@ def development(board: chess.Board, thresholds: PhaseThresholds | None = None) -
     lead = white_control - black_control
     if abs(lead) >= CENTRE_CONTROL_LEAD:
         leader = chess.WHITE if lead > 0 else chess.BLACK
+        centre_names = ", ".join(chess.square_name(square) for square in CENTRE)
         facts.append(
             _fact(
                 board,
                 "development:centre",
                 FactType.DEVELOPMENT,
                 side_of(leader),
-                f"{_name(leader)} controls the centre squares d4, e4, d5, e5 "
+                f"{_name(leader)} controls the centre squares {centre_names} "
                 f"{max(white_control, black_control)} to {min(white_control, black_control)}",
                 [],
                 abs(lead),

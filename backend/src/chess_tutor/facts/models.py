@@ -19,6 +19,11 @@ class FactType(StrEnum):
     PAWN_STRUCTURE = "pawn_structure"
     DEVELOPMENT = "development"
     ACTIVITY = "activity"
+    BACK_RANK_WEAKNESS = "back_rank_weakness"
+    MATE_THREAT = "mate_threat"
+    MATE_IN_ONE = "mate_in_one"
+    OVERLOADED_DEFENDER = "overloaded_defender"
+    TRAPPED_PIECE = "trapped_piece"
 
 
 class PieceRef(BaseModel):

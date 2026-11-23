@@ -39,6 +39,14 @@ def test_uncastled_king_with_open_centre_is_flagged() -> None:
     assert "uncastled in the centre" in summaries(facts)
 
 
+def test_king_on_d_file_in_open_centre_counts_as_uncastled() -> None:
+    facts = king_safety(
+        chess.Board("r1bqk2r/ppp2ppp/2n2n2/8/2BP4/2N2N2/PPP2PPP/R1BK3R w kq - 0 12")
+    )
+    assert "king_safety:white" in ids(facts)
+    assert "uncastled" in facts[0].summary
+
+
 def test_missing_shield_pawn_is_flagged() -> None:
     facts = king_safety(chess.Board(NO_G_PAWN))
     assert ids(facts) == {"king_safety:white"}
@@ -88,6 +96,9 @@ def test_backward_pawn() -> None:
     # a neighbour level with the pawn can still support it, so it is not backward
     supported = pawn_structure(chess.Board("4k3/8/8/3p4/3P4/1PP5/8/4K3 w - - 0 1"))
     assert "pawns:white:backward:c3" not in ids(supported)
+    # a friendly pawn behind on an adjacent file can still advance to support it
+    behind = pawn_structure(chess.Board("4k3/8/8/3p4/3P4/2P5/1P6/4K3 w - - 0 1"))
+    assert "pawns:white:backward:c3" not in ids(behind)
 
 
 def test_pawn_structure_quiet_positions_have_no_facts() -> None:
