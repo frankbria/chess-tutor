@@ -170,8 +170,8 @@ def test_skewers(fen: str, skewer_id: str, behind: str) -> None:
 @pytest.mark.parametrize(
     "fen",
     [
-        # equal values but the piece behind is defended
-        "r6k/8/8/8/R7/8/8/R3K3 w - - 0 1",
+        # equal values but the king defends the bishop behind the knight
+        "r6k/8/8/8/N7/8/1K6/B7 w - - 0 1",
         # more valuable piece behind: a pin, not a skewer
         "4r2k/8/8/8/8/8/4N3/4Q1K1 b - - 0 1",
         # the pieces are the slider's own colour
@@ -212,3 +212,32 @@ def test_no_discovery_when_nothing_is_unmasked() -> None:
 def test_packet_includes_tactics() -> None:
     packet = build_fact_packet(chess.Board("r3k3/8/4N3/8/8/8/8/4K3 w - - 0 1"))
     assert packet.fact("fork_opportunity:e6c7") is not None
+
+
+def test_fork_dropped_when_forker_can_be_captured() -> None:
+    # the knight forks king and queen but the d6 pawn takes it
+    board = chess.Board("8/3q4/3p2k1/4N3/8/8/8/4K3 b - - 0 1")
+    assert forks(board) == []
+    assert "fork:e5" in ids(forks(chess.Board("8/3q4/6k1/4N3/8/8/8/4K3 b - - 0 1")))
+
+
+INVARIANT_FENS = [
+    START,
+    OPENING,
+    "r3k3/2N5/8/8/8/8/8/4K3 b - - 0 1",
+    "r3k3/8/4N3/8/8/8/8/4K3 w - - 0 1",
+    "4k3/8/2n1n3/3P4/8/8/8/4K3 b - - 0 1",
+    "4k3/8/8/8/1b6/8/3N4/4K3 w - - 0 1",
+    "4r2k/8/8/8/4N3/8/4Q3/6K1 w - - 0 1",
+    "k7/8/8/8/8/8/8/3RK2r w - - 0 1",
+    "k7/8/8/4R3/8/2Q5/8/b3K3 w - - 0 1",
+    "4k3/8/8/8/4N3/8/8/4R1K1 w - - 0 1",
+    "3q2k1/8/8/8/3B4/8/8/3R2K1 w - - 0 1",
+    "6kr/8/8/8/3P4/8/8/B3K3 w - - 0 1",
+]
+
+
+@pytest.mark.parametrize("fen", INVARIANT_FENS)
+def test_squares_and_pieces_are_parallel(fen: str) -> None:
+    for fact in build_fact_packet(chess.Board(fen)).facts:
+        assert [piece.square for piece in fact.pieces] == fact.squares

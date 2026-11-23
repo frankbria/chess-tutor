@@ -1,3 +1,9 @@
+"""Tactical motif detectors.
+
+Cost: fork opportunities and discovered attacks push every legal move on a board copy. That is
+fine per real move, not for per-node analysis.
+"""
+
 from dataclasses import dataclass
 
 import chess
@@ -75,11 +81,17 @@ def _fork_fact(
     )
 
 
+def _can_be_won(board: chess.Board, square: chess.Square) -> bool:
+    """The side to move wins the piece on `square` by static exchange."""
+    owner = board.color_at(square)
+    return owner != board.turn and exchange_gain(board, square, board.turn) > 0
+
+
 def forks(board: chess.Board) -> list[Fact]:
     facts = []
     for forker in sorted(board.piece_map()):
         targets = _fork_targets(board, forker)
-        if len(targets) >= 2:
+        if len(targets) >= 2 and not _can_be_won(board, forker):
             facts.append(
                 _fork_fact(board, f"fork:{chess.square_name(forker)}", forker, targets, [])
             )
@@ -209,6 +221,7 @@ def _unmasked_targets(
     return [
         target
         for target in sorted(newly)
+        # Pawns are excluded: uncovering an attack on a loose pawn is rarely worth teaching.
         if after.piece_type_at(target) != chess.PAWN and _is_worth_attacking(after, target, value)
     ]
 
@@ -238,7 +251,7 @@ def _discovered_fact(
             f"{revealed.piece_type} on {revealed.square} on {victim.piece_type} on {victim.square}"
         ),
         severity=piece_value(after, target),
-        squares=[chess.square_name(move.from_square), revealed.square, victim.square],
+        squares=[ref.square for ref in refs],
         pieces=refs,
         san_lines=[[san]],
     )
