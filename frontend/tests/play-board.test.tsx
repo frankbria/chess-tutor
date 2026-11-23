@@ -39,6 +39,9 @@ function game(overrides: Partial<GameState> = {}): GameState {
     moves: [],
     side_to_move: "white",
     legal_moves: ["e2e4", "a7a8q", "a7a8n"],
+    time_control: null,
+    clock: null,
+    ended_on_time: false,
     ...overrides,
   };
 }
@@ -127,7 +130,7 @@ describe("PlayBoard", () => {
     render(<PlayBoard gameId={1} api={api} />);
     await screen.findByTestId("board");
     current = game({ moves: ["e4", "e5"] });
-    stream()?.onOpponentMove({ uci: "e7e5", san: "e5", fen: "" });
+    stream()?.onOpponentMove({ uci: "e7e5", san: "e5", fen: "", clock: null });
     await waitFor(() => expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent("e5"));
     current = game({ moves: ["e4", "e5"], status: "finished", result: "0-1", legal_moves: [] });
     stream()?.onGameOver({ result: "0-1", reason: "checkmate" });
@@ -140,6 +143,56 @@ describe("PlayBoard", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Resign" }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm resign" }));
     expect(await screen.findByRole("dialog", { name: "You lost" })).toBeInTheDocument();
+  });
+
+  it("shows both clocks from the server state, the player's below the opponent's", async () => {
+    const clock = { white_ms: 590_000, black_ms: 600_000, running: "white" } as const;
+    const { api } = fakeApi(game({ time_control: "10+5", clock }));
+    render(<PlayBoard gameId={1} api={api} />);
+    const timers = await screen.findAllByRole("timer");
+    expect(timers.map((timer) => timer.getAttribute("aria-label"))).toEqual(["Opponent clock", "Your clock"]);
+    expect(screen.getByRole("timer", { name: "Your clock" })).toHaveTextContent("9:50");
+    expect(screen.getByRole("timer", { name: "Opponent clock" })).toHaveTextContent("10:00");
+  });
+
+  it("switches the running clock on an opponent move without waiting for a refetch", async () => {
+    const timed = game({
+      side_to_move: "black",
+      clock: { white_ms: 590_000, black_ms: 600_000, running: "black" },
+    });
+    let loads = 0;
+    const { api, stream } = fakeApi(timed, {
+      getGame: () => (loads++ === 0 ? Promise.resolve(timed) : new Promise(() => undefined)),
+    });
+    render(<PlayBoard gameId={1} api={api} />);
+    expect(await screen.findByRole("timer", { name: "Opponent clock" })).toHaveAttribute("data-running", "true");
+
+    act(() =>
+      stream()?.onOpponentMove({
+        uci: "e7e5",
+        san: "e5",
+        fen: START_FEN,
+        clock: { white_ms: 590_000, black_ms: 605_000, running: "white" },
+      }),
+    );
+
+    expect(screen.getByRole("timer", { name: "Your clock" })).toHaveAttribute("data-running", "true");
+    expect(screen.getByRole("timer", { name: "Opponent clock" })).toHaveAttribute("data-running", "false");
+    expect(screen.getByRole("timer", { name: "Opponent clock" })).toHaveTextContent("10:05");
+  });
+
+  it("shows no clocks in an untimed game", async () => {
+    const { api } = fakeApi(game());
+    render(<PlayBoard gameId={1} api={api} />);
+    await screen.findByTestId("board");
+    expect(screen.queryByRole("timer")).not.toBeInTheDocument();
+  });
+
+  it("says the game ended on time after a reload", async () => {
+    const clock = { white_ms: 0, black_ms: 500_000, running: null } as const;
+    const { api } = fakeApi(game({ status: "finished", result: "0-1", clock, ended_on_time: true }));
+    render(<PlayBoard gameId={1} api={api} />);
+    expect(await screen.findByRole("dialog", { name: "You lost" })).toHaveTextContent("0-1 on time");
   });
 
   it("reports a network failure without losing state", async () => {
@@ -194,6 +247,11 @@ describe("GameOverDialog", () => {
   ] as const)("titles %s for %s as %s and shows the reason", (result, color, title) => {
     render(<GameOverDialog open result={result} reason="threefold_repetition" playerColor={color} onClose={() => undefined} />);
     expect(screen.getByRole("dialog", { name: title })).toHaveTextContent("by threefold repetition");
+  });
+
+  it("words a timeout as on time", () => {
+    render(<GameOverDialog open result="0-1" reason="timeout" playerColor="white" onClose={() => undefined} />);
+    expect(screen.getByRole("dialog")).toHaveTextContent("0-1 on time");
   });
 
   it("omits the reason when unknown", () => {

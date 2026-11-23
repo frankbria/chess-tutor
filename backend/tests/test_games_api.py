@@ -6,11 +6,12 @@ from collections.abc import AsyncIterator, Iterator
 import httpx2
 import pytest
 import uvicorn
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from scripted_opponent import ScriptedOpponent
 
 from chess_tutor.api.games import status_for
-from chess_tutor.games.service import NotPlayersTurnError
+from chess_tutor.games.service import NotPlayersTurnError, wall_clock_ms
 from chess_tutor.main import create_app
 from chess_tutor.settings import Settings
 
@@ -189,13 +190,18 @@ async def read_events(response: httpx2.Response, count: int) -> list[tuple[str, 
 
 
 @pytest.fixture
-async def live_client(settings: Settings) -> AsyncIterator[httpx2.AsyncClient]:
+def live_app(settings: Settings) -> FastAPI:
+    return create_app(settings, ScriptedOpponent("e5", "Nc6"))
+
+
+@pytest.fixture
+async def live_client(live_app: FastAPI) -> AsyncIterator[httpx2.AsyncClient]:
     # ASGITransport buffers whole responses, so a stream needs a real server on a free port.
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
     config = uvicorn.Config(
-        create_app(settings, ScriptedOpponent("e5", "Nc6")),
+        live_app,
         host="127.0.0.1",
         port=port,
         log_level="warning",
@@ -234,6 +240,7 @@ async def test_stream_delivers_opponent_move_then_game_over(
                 "uci": "e7e5",
                 "san": "e5",
                 "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+                "clock": None,
             },
         ),
         ("game_over", {"type": "game_over", "result": "0-1", "reason": "resignation"}),
@@ -285,3 +292,51 @@ def test_subclass_of_a_mapped_error_maps_to_its_base_status() -> None:
         pass
 
     assert status_for(StaleMoveError("late")) == 409
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now_ms = wall_clock_ms()  # games created before the swap start on the real clock
+
+    def __call__(self) -> int:
+        return self.now_ms
+
+
+async def test_stream_emits_game_over_when_the_clock_flags(
+    live_app: FastAPI, live_client: httpx2.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("chess_tutor.api.games.CLOCK_POLL_SECONDS", 0.05)
+    clock = FakeClock()
+    game = (
+        await live_client.post(
+            "/games", json={"opponent_elo": 1000, "color": "white", "time_control": "5+3"}
+        )
+    ).json()
+    live_app.state.game_service._clock = clock
+
+    async with live_client.stream("GET", f"/games/{game['id']}/coach/stream") as stream:
+        reader = asyncio.create_task(read_events(stream, 99))
+        await asyncio.sleep(0.2)
+        clock.now_ms += 10 * 60_000
+        events = await asyncio.wait_for(reader, timeout=5)
+
+    assert events[0][0] == "snapshot" and '"running": "white"' in json.dumps(events[0][1])
+    assert events[-1] == (
+        "game_over",
+        {"type": "game_over", "result": "0-1", "reason": "timeout"},
+    )
+
+
+def test_opponent_move_event_carries_the_clock_after_the_reply(settings: Settings) -> None:
+    app = create_app(settings, ScriptedOpponent("e5"))
+    with TestClient(app) as api:
+        created = api.post(
+            "/games", json={"opponent_elo": 1000, "color": "white", "time_control": "5+3"}
+        ).json()
+        with app.state.game_events.subscribe(created["id"]) as queue:
+            api.post(f"/games/{created['id']}/moves", json={"uci": "e2e4"})
+            event = queue.get_nowait()
+
+    assert event.type == "opponent_move"
+    assert event.clock is not None and event.clock.running == "white"
+    assert event.clock.white_ms > 5 * 60_000 and event.clock.black_ms > 5 * 60_000

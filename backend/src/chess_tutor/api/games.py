@@ -3,17 +3,21 @@
 SSE `GET /games/{id}/coach/stream` emits one JSON object per event, with the SSE `event:` name
 equal to the object's `type`:
 
-- `opponent_move`: `{"type", "uci", "san", "fen"}`, the opponent's move and the resulting FEN.
-- `snapshot`: `{"type", "fen", "side_to_move", "status", "last_move"}`, always the first event on
-  a new subscription; `last_move` is the SAN of the latest move or null. A stream for a game that
+- `opponent_move`: `{"type", "uci", "san", "fen", "clock"}`: the opponent's move, the resulting FEN
+  and the clock after it (null if untimed).
+- `snapshot`: `{"type", "fen", "side_to_move", "status", "last_move", "clock"}`, always the first
+  event on a new subscription; `last_move` is the SAN of the latest move or null; `clock` is
+  `{white_ms, black_ms, running}` for a timed game, else null. A stream for a game that
   is already finished ends right after it.
 - `game_over`: `{"type", "result", "reason"}`; `result` is `1-0`, `0-1` or `1/2-1/2`, `reason` is
   `checkmate`, `stalemate`, `insufficient_material`, `fifty_moves`, `threefold_repetition`, etc.,
-  or `resignation`. The stream closes after it.
+  `resignation` or `timeout`. The stream closes after it.
+  A timed game's stream checks the clock once a second and emits `game_over` on a flag.
 
 Events are published after the service call that caused them, so subscribe before moving.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Annotated
 
@@ -24,6 +28,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
 from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
+from chess_tutor.games.clock import ClockState
 from chess_tutor.games.service import (
     ColorChoice,
     GameError,
@@ -35,8 +40,9 @@ from chess_tutor.games.service import (
     NotPlayersTurnError,
     OpponentUnavailableError,
 )
-from chess_tutor.models import Game, GameMode, GameResult, GameStatus, PlayerColor
+from chess_tutor.models import Game, GameMode, GameResult, GameStatus, PlayerColor, TimeControl
 
+CLOCK_POLL_SECONDS = 1.0
 DEFAULT_PLAYER_ID = 1  # shortcut: single-user app, no auth yet; replace with the signed-in player.
 
 # Ordered: the first isinstance match wins, so list subclasses before their bases.
@@ -91,6 +97,9 @@ class CreateGameRequest(BaseModel):
         default=None,
         description="Defaults to the player rating, plus the stretch in tutor modes",
     )
+    time_control: TimeControl | None = Field(
+        default=None, description="Regular mode only; omit for an untimed game"
+    )
 
 
 class MoveRequest(BaseModel):
@@ -112,6 +121,9 @@ class GameResponse(BaseModel):
     moves: list[str] = Field(description="Moves in SAN, in play order")
     side_to_move: PlayerColor
     legal_moves: list[str] = Field(description="Legal moves in UCI, empty once the game is over")
+    time_control: TimeControl | None
+    clock: ClockState | None
+    ended_on_time: bool
 
 
 def describe(service: GameService, game: Game) -> GameResponse:
@@ -133,6 +145,9 @@ def describe(service: GameService, game: Game) -> GameResponse:
         legal_moves=(
             [] if game.status is GameStatus.FINISHED else [m.uci() for m in board.legal_moves]
         ),
+        time_control=game.time_control,
+        clock=service.clock_state(game, board.turn),
+        ended_on_time=game.ended_on_time,
     )
 
 
@@ -140,6 +155,8 @@ def game_over_event(board: chess.Board, game: Game) -> GameOverEvent:
     assert game.result is not None
     outcome = board.outcome(claim_draw=True)
     reason = outcome.termination.name.lower() if outcome else "resignation"
+    if game.ended_on_time:
+        reason = "timeout"
     return GameOverEvent(result=game.result.value, reason=reason)
 
 
@@ -147,11 +164,13 @@ def describe_snapshot(service: GameService, game_id: int) -> SnapshotEvent:
     board = service.get_board(game_id)
     fen, turn = board.fen(), board.turn
     last_move = board.san(board.pop()) if board.move_stack else None
+    game = service.get_game(game_id)
     return SnapshotEvent(
         fen=fen,
         side_to_move=PlayerColor.WHITE if turn == chess.WHITE else PlayerColor.BLACK,
-        status=service.get_game(game_id).status,
+        status=game.status,
         last_move=last_move,
+        clock=service.clock_state(game, turn),
     )
 
 
@@ -163,7 +182,12 @@ def publish_after_move(
         reply = board.pop()
         events.publish(
             game.id,
-            OpponentMoveEvent(uci=reply.uci(), san=board.san(reply), fen=_after(board, reply)),
+            OpponentMoveEvent(
+                uci=reply.uci(),
+                san=board.san(reply),
+                fen=_after(board, reply),
+                clock=service.clock_state(game, not board.turn),
+            ),
         )
         board.push(reply)
     if game.status is GameStatus.FINISHED:
@@ -182,7 +206,9 @@ router = APIRouter(prefix="/games", tags=["games"])
 
 @router.post("", status_code=201)
 async def create_game(body: CreateGameRequest, service: Service) -> GameResponse:
-    game = await service.create_game(DEFAULT_PLAYER_ID, body.opponent_elo, body.color, body.mode)
+    game = await service.create_game(
+        DEFAULT_PLAYER_ID, body.opponent_elo, body.color, body.mode, body.time_control
+    )
     return describe(service, game)
 
 
@@ -192,8 +218,9 @@ def list_games(service: Service, status: GameStatus | None = None) -> list[GameR
 
 
 @router.get("/{game_id}")
-def get_game(game_id: int, service: Service) -> GameResponse:
-    return describe(service, service.get_game(game_id))
+async def get_game(game_id: int, service: Service) -> GameResponse:
+    # Server-authoritative clock: a read must reflect a flag that happened while nobody watched.
+    return describe(service, await service.check_flag(game_id))
 
 
 @router.post("/{game_id}/moves")
@@ -228,7 +255,13 @@ async def coach_stream(
         if snapshot.status is GameStatus.FINISHED:
             return
         while True:
-            event = await queue.get()
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=CLOCK_POLL_SECONDS)
+            except TimeoutError:
+                game = await service.check_flag(game_id)
+                if game.status is not GameStatus.FINISHED:
+                    continue
+                event = game_over_event(service.get_board(game_id), game)
             yield ServerSentEvent(data=event, event=event.type)
             if isinstance(event, GameOverEvent):
                 return

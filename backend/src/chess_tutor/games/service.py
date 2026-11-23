@@ -1,5 +1,7 @@
 import asyncio
 import random
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 
@@ -10,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.think_time import OpponentPacing
+from chess_tutor.games.clock import ClockState
 from chess_tutor.models import (
     Game,
     GameMode,
@@ -18,6 +21,7 @@ from chess_tutor.models import (
     Move,
     Player,
     PlayerColor,
+    TimeControl,
 )
 from chess_tutor.openings import lookup_opening
 from chess_tutor.rating.history import record_rating
@@ -72,6 +76,10 @@ def board_result(board: chess.Board) -> GameResult | None:
     return None if outcome is None else GameResult(outcome.result())
 
 
+def wall_clock_ms() -> int:
+    return time.time_ns() // 1_000_000
+
+
 def chess_color(color: PlayerColor) -> chess.Color:
     return chess.WHITE if color is PlayerColor.WHITE else chess.BLACK
 
@@ -83,7 +91,9 @@ class GameService:
         opponent: OpponentEngine,
         pacing: OpponentPacing | None = None,
         thresholds: Thresholds | None = None,
+        clock: Callable[[], int] = wall_clock_ms,
     ) -> None:
+        self._clock = clock
         self._thresholds = thresholds or Thresholds()
         self._engine = engine
         self._opponent = opponent
@@ -97,7 +107,10 @@ class GameService:
         opponent_elo: int | None = None,
         color: ColorChoice = ColorChoice.RANDOM,
         mode: GameMode = GameMode.REGULAR,
+        time_control: TimeControl | None = None,
     ) -> Game:
+        if time_control is not None and mode is not GameMode.REGULAR:
+            raise InvalidGameSettingsError("only Regular mode can be timed")
         if opponent_elo is None:
             opponent_elo = self._default_opponent_elo(player_id, mode)
         if not MINIMUM_OPPONENT_ELO <= opponent_elo <= MAXIMUM_OPPONENT_ELO:
@@ -115,6 +128,10 @@ class GameService:
                 opponent_elo=opponent_elo,
                 status=GameStatus.ACTIVE,
             )
+            if time_control is not None:
+                game.time_control = time_control
+                game.white_ms = game.black_ms = time_control.base_ms
+                game.clock_started_ms = self._clock()
             session.add(game)
             session.commit()
         return await self.play_opponent_move(game.id)
@@ -169,6 +186,9 @@ class GameService:
             # The engine is an external process: any failure there means no reply.
             except Exception as error:
                 raise OpponentUnavailableError("the opponent engine did not reply") from error
+            session.refresh(game)  # a flag or resignation may have ended the game meanwhile
+            if game.status is not GameStatus.ACTIVE:
+                return game
             self._push(session, game, board, move)
             session.commit()
             return game
@@ -184,6 +204,31 @@ class GameService:
             self._finish(session, game, winner)
             session.commit()
             return game
+
+    async def check_flag(self, game_id: int) -> Game:
+        """End the game on time if the side to move has run out; otherwise return it unchanged."""
+        async with self._move_lock:  # a flag must not interleave with a move's read-check-write
+            with Session(self._engine, expire_on_commit=False) as session:
+                game = self._get(session, game_id)
+                if game.status is GameStatus.ACTIVE and game.time_control is not None:
+                    mover = self._board(session, game_id).turn
+                    if self._remaining_ms(game, mover) <= 0:
+                        self._flag(session, game, mover)
+                        session.commit()
+                return game
+
+    def clock_state(self, game: Game, turn: chess.Color) -> ClockState | None:
+        if game.time_control is None or game.white_ms is None or game.black_ms is None:
+            return None
+        running = game.status is GameStatus.ACTIVE
+
+        def shown(side: chess.Color, stored: int) -> int:
+            return max(0, self._remaining_ms(game, side) if running and turn == side else stored)
+
+        white_ms = shown(chess.WHITE, game.white_ms)
+        black_ms = shown(chess.BLACK, game.black_ms)
+        side = PlayerColor.WHITE if turn == chess.WHITE else PlayerColor.BLACK
+        return ClockState(white_ms=white_ms, black_ms=black_ms, running=side if running else None)
 
     def get_game(self, game_id: int) -> Game:
         with Session(self._engine, expire_on_commit=False) as session:
@@ -236,7 +281,35 @@ class GameService:
             raise IllegalMoveError(f"{uci} is not legal in {board.fen()}")
         return move
 
+    def _remaining_ms(self, game: Game, side: chess.Color) -> int:
+        """Stored time for the side, less the running time when it is the side whose clock ticks."""
+        assert game.white_ms is not None and game.black_ms is not None
+        assert game.clock_started_ms is not None
+        stored = game.white_ms if side == chess.WHITE else game.black_ms
+        return stored - (self._clock() - game.clock_started_ms)
+
+    def _flag(self, session: Session, game: Game, loser: chess.Color) -> None:
+        if loser == chess.WHITE:
+            game.white_ms, result = 0, GameResult.BLACK_WINS
+        else:
+            game.black_ms, result = 0, GameResult.WHITE_WINS
+        self._finish(session, game, result, on_time=True)
+
     def _push(self, session: Session, game: Game, board: chess.Board, move: chess.Move) -> None:
+        if game.status is not GameStatus.ACTIVE:
+            raise GameNotActiveError(f"game {game.id} is already finished")
+        mover = board.turn
+        if game.time_control is not None:
+            remaining = self._remaining_ms(game, mover)
+            if remaining <= 0:
+                self._flag(session, game, mover)
+                return
+            remaining += game.time_control.increment_ms
+            if mover == chess.WHITE:
+                game.white_ms = remaining
+            else:
+                game.black_ms = remaining
+            game.clock_started_ms = self._clock()
         session.add(
             Move(
                 game_id=game.id,
@@ -254,9 +327,12 @@ class GameService:
         if result is not None:
             self._finish(session, game, result)
 
-    def _finish(self, session: Session, game: Game, result: GameResult) -> None:
+    def _finish(
+        self, session: Session, game: Game, result: GameResult, on_time: bool = False
+    ) -> None:
         session.flush()
         game.status = GameStatus.FINISHED
+        game.ended_on_time = on_time
         game.result = result
         game.ended_at = datetime.now(UTC)
         game.pgn = self._render_pgn(session, game)
