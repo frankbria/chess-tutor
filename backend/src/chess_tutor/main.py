@@ -13,6 +13,7 @@ from chess_tutor.api.events import GameEvents
 from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
 from chess_tutor.api.settings import router as settings_router
+from chess_tutor.api.settings import stored_maia_model
 from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
 from chess_tutor.engines.human_moves import HumanMovePredictor
@@ -67,14 +68,18 @@ CONCEPT_STATE_ORDER = (
 
 
 def create_app(settings: Settings | None = None, opponent: OpponentEngine | None = None) -> FastAPI:
-    settings = settings or Settings()
+    environment_settings = settings or Settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        run_migrations(settings)
+        run_migrations(environment_settings)
         await asyncio.to_thread(opening_index)  # parse the book before the first move needs it
-        engine = create_database_engine(settings)
+        engine = create_database_engine(environment_settings)
         seed_default_player(engine)
+        # The saved Maia model size wins over the environment's; it applies from this start on.
+        settings = environment_settings.model_copy(
+            update={"maia_model": stored_maia_model(engine, environment_settings.maia_model)}
+        )
         app.state.engine = engine
         app.state.settings = settings
         app.state.game_events = GameEvents()
@@ -128,7 +133,7 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
     app = FastAPI(title="Chess Tutor", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.frontend_origins,
+        allow_origins=environment_settings.frontend_origins,
         allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Content-Type"],
     )

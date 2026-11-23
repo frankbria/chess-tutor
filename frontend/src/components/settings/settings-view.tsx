@@ -142,7 +142,7 @@ export function SettingsView() {
         <h2 id="preferences-heading" className="text-lg font-semibold">
           Preferences
         </h2>
-        <Field label="Coach verbosity">
+        <Field label="Coach verbosity (coming soon, not applied yet)">
           <select
             className={FIELD_CLASS}
             value={draft.coach_verbosity}
@@ -168,7 +168,7 @@ export function SettingsView() {
             ))}
           </select>
         </Field>
-        <Field label="Maia model size">
+        <Field label="Maia model size (applies after server restart)">
           <select
             className={FIELD_CLASS}
             value={draft.maia_model}

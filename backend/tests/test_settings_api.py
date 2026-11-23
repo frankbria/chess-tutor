@@ -122,3 +122,15 @@ def test_put_is_allowed_by_cors(settings: Settings) -> None:
     )
 
     assert "PUT" in response.headers["access-control-allow-methods"]
+
+
+def test_stored_maia_model_is_what_the_app_starts_with(settings: Settings) -> None:
+    app = create_app(settings)
+    with TestClient(app) as client:
+        assert app.state.settings.maia_model == settings.maia_model
+        preferences = client.get("/settings").json()["preferences"]
+        client.put("/settings", json={**preferences, "maia_model": "23m"})
+
+    restarted = create_app(settings)
+    with TestClient(restarted):
+        assert restarted.state.settings.maia_model == "23m"

@@ -5,6 +5,7 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { useSettingsApi } from "@/components/settings/settings-api-context";
 import { ApiError, type ColorChoice, type GameMode } from "@/lib/game-api";
 
 import { useLobbyApi } from "./lobby-api-context";
@@ -23,6 +24,7 @@ const choiceClass =
 
 export function NewGameDialog() {
   const api = useLobbyApi();
+  const settingsApi = useSettingsApi();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<GameMode>("regular");
@@ -47,6 +49,17 @@ export function NewGameDialog() {
       current = false;
     };
   }, [open, api, ratingLoaded]);
+
+  useEffect(() => {
+    let current = true;
+    settingsApi
+      .getSettings()
+      .then((state) => current && setMode(state.preferences.default_mode))
+      .catch(() => undefined); // keep the built-in default when settings are unavailable
+    return () => {
+      current = false;
+    };
+  }, [settingsApi]);
 
   function openDialog() {
     if (!ratingLoaded) setElo(null); // a fallback Elo from a failed load must not stick; reload it

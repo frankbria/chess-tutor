@@ -59,9 +59,9 @@ describe("SettingsView", () => {
     renderView(stateWith(1), saved);
     const user = userEvent.setup();
 
-    await user.selectOptions(await screen.findByLabelText("Coach verbosity"), "brief");
+    await user.selectOptions(await screen.findByLabelText(/Coach verbosity/), "brief");
     await user.selectOptions(screen.getByLabelText("Default mode"), "active");
-    await user.selectOptions(screen.getByLabelText("Maia model size"), "23m");
+    await user.selectOptions(screen.getByLabelText(/Maia model size/), "23m");
     await user.clear(screen.getByLabelText(/Monthly coach budget/));
     await user.type(screen.getByLabelText(/Monthly coach budget/), "4.5");
     await user.click(screen.getByRole("button", { name: "Save settings" }));

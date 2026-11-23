@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.models import Game, GameMode, PlayerSetting
@@ -55,6 +55,11 @@ def load_preferences(session: Session, maia_model: MaiaModel) -> Preferences:
             **stored,
         }
     )
+
+
+def stored_maia_model(engine: Engine, fallback: MaiaModel) -> MaiaModel:
+    with Session(engine) as session:
+        return load_preferences(session, fallback).maia_model
 
 
 def build_response(session: Session, maia_model: MaiaModel) -> SettingsResponse:
