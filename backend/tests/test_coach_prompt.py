@@ -215,3 +215,15 @@ async def test_real_coach_cites_only_known_facts_and_hides_the_best_move() -> No
     assert set(reply.parsed.fact_ids) <= known
     assert len(reply.parsed.text.split()) <= WORD_LIMIT
     assert delta.best_move_san not in reply.parsed.text
+
+
+def test_allowed_references_list_the_visible_squares_and_moves_only() -> None:
+    pre = json.loads(build_coach_request(fork_context())[1][0].content)["allowed_references"]
+    post = json.loads(build_coach_request(fork_context(active_pre_lock_in=False))[1][0].content)[
+        "allowed_references"
+    ]
+
+    assert pre["moves"] == ["Kf2"]  # the best move's fork fact is filtered out
+    assert "c7" not in pre["squares"]
+    assert {"Kf2", "Nc7+", "Nxa8"} <= set(post["moves"])
+    assert "c7" in post["squares"]
