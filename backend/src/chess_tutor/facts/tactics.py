@@ -223,16 +223,21 @@ def _unmasked_targets(
         for target in sorted(newly)
         # Pawns are excluded: uncovering an attack on a loose pawn is rarely worth teaching.
         if after.piece_type_at(target) != chess.PAWN and _is_worth_attacking(after, target, value)
+        # A pinned slider can't take the target, so the uncovered attack isn't real.
+        and slider in capturers(after, color, target)
     ]
 
 
-def _friendly_sliders(
-    board: chess.Board, color: chess.Color, moved_to: chess.Square
+def _stationary_sliders(
+    before: chess.Board, after: chess.Board, color: chess.Color
 ) -> list[chess.Square]:
+    """Sliders that stood still during the move (castling relocates a rook, so compare boards)."""
     return [
         square
-        for square, piece in sorted(board.piece_map().items())
-        if piece.color == color and piece.piece_type in SLIDER_DIRECTIONS and square != moved_to
+        for square, piece in sorted(after.piece_map().items())
+        if piece.color == color
+        and piece.piece_type in SLIDER_DIRECTIONS
+        and before.piece_at(square) == piece
     ]
 
 
@@ -264,7 +269,7 @@ def discovered_attacks(board: chess.Board) -> list[Fact]:
     for move in sorted(board.legal_moves, key=lambda candidate: candidate.uci()):
         san = board.san(move)
         scratch.push(move)
-        for slider in _friendly_sliders(scratch, board.turn, move.to_square):
+        for slider in _stationary_sliders(board, scratch, board.turn):
             for target in _unmasked_targets(board, scratch, slider):
                 facts.append(_discovered_fact(scratch, move, san, slider, target))
         scratch.pop()

@@ -241,3 +241,20 @@ INVARIANT_FENS = [
 def test_squares_and_pieces_are_parallel(fen: str) -> None:
     for fact in build_fact_packet(chess.Board(fen)).facts:
         assert [piece.square for piece in fact.pieces] == fact.squares
+
+
+def test_discovered_attack_needs_an_unpinned_slider() -> None:
+    # The bishop on e2 is pinned to its king by the e8 rook. Only Ne5 also blocks the pin,
+    # so it is the one knight move that really uncovers Bxa6.
+    board = chess.Board("4r2k/8/q7/8/8/3N4/4B3/4K3 w - - 0 1")
+
+    ids = [fact.id for fact in discovered_attacks(board) if fact.id.startswith("discovered:d3")]
+
+    assert ids == ["discovered:d3e5:e2:a6"]
+
+
+def test_castling_rook_is_not_a_discovered_attacker() -> None:
+    # After O-O the rook on f1 attacks f8, but it moved there; nothing was uncovered.
+    board = chess.Board("k4b2/8/8/8/8/8/8/4K2R w K - 0 1")
+
+    assert not [fact for fact in discovered_attacks(board) if fact.id.startswith("discovered:e1g1")]
