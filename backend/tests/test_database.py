@@ -3,6 +3,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.exc import IntegrityError
@@ -92,3 +94,10 @@ def test_alembic_cli_migrates_without_llm_key(tmp_path: Path) -> None:
     )
 
     assert "player" in inspect(create_engine(f"sqlite:///{database_path}")).get_table_names()
+
+
+def test_migrations_form_a_single_chain() -> None:
+    # Parallel branches that each add "the next" migration would otherwise create two heads.
+    script = ScriptDirectory.from_config(Config(BACKEND_ROOT / "alembic.ini"))
+
+    assert len(script.get_heads()) == 1
