@@ -1,5 +1,9 @@
+import asyncio
 import logging
+import os
+import signal
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import chess
 import chess.engine
@@ -7,6 +11,7 @@ import pytest
 import pytest_asyncio
 
 from chess_tutor.engines.opponent import Maia3Opponent, OpponentError
+from chess_tutor.settings import Settings
 
 pytestmark = [pytest.mark.maia, pytest.mark.asyncio(loop_scope="module")]
 
@@ -53,3 +58,33 @@ async def test_model_setting_is_passed_through(caplog: pytest.LogCaptureFixture)
 async def test_unknown_model_stops_the_engine() -> None:
     with pytest.raises(chess.engine.EngineError):
         await Maia3Opponent(model="no-such-model").start()
+
+
+async def test_settings_drive_the_engine(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="chess_tutor.engines.opponent")
+    settings = Settings(_env_file=None, llm_provider="none", maia_model="3m")
+    async with Maia3Opponent.from_settings(settings) as engine:
+        assert await engine.choose_move(chess.Board(), 800) in chess.Board().legal_moves
+    assert "model=3m device=cpu" in caplog.text
+
+
+async def test_close_twice_then_choose_move_raises() -> None:
+    engine = Maia3Opponent(model="3m")
+    await engine.start()
+    await engine.close()
+    await engine.close()
+    with pytest.raises(OpponentError):
+        await engine.choose_move(chess.Board(), 800)
+
+
+async def test_close_kills_an_engine_that_ignores_quit() -> None:
+    engine = Maia3Opponent(model="3m")
+    await engine.start()
+    assert engine._engine is not None
+    transport = engine._engine.transport
+    assert isinstance(transport, asyncio.SubprocessTransport)
+    pid = transport.get_pid()
+    os.kill(pid, signal.SIGSTOP)
+    await engine.close()
+    await asyncio.sleep(0.2)
+    assert not Path(f"/proc/{pid}").exists()

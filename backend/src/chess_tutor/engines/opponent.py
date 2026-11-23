@@ -6,6 +6,8 @@ from typing import Protocol, Self
 import chess
 import chess.engine
 
+from chess_tutor.settings import Settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,6 +32,10 @@ class Maia3Opponent:
         self._device = device
         self._engine: chess.engine.UciProtocol | None = None
         self._lock = asyncio.Lock()
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> Self:
+        return cls(settings.maia_command, settings.maia_model, settings.maia_device)
 
     async def __aenter__(self) -> Self:
         await self.start()

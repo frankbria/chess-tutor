@@ -39,6 +39,8 @@ make lint                # every package's lint, format and type checks
 
 Run `scripts/install_maia3.sh` once (needs `uv`). It installs `maia3-uci` as an isolated uv tool, pinned to a commit, with CPU-only torch (about 900 MB on disk). Model weights download from Hugging Face on first use and are cached.
 
+For `CHESS_TUTOR_MAIA_DEVICE=cuda`, install a CUDA torch build: `MAIA3_TORCH_INDEX=https://download.pytorch.org/whl/cu128 scripts/install_maia3.sh` (use the index matching your driver), or `MAIA3_TORCH_INDEX=` (empty) for PyPI's default build.
+
 Maia-3 is AGPL-3 licensed. It runs as a separate process that the backend talks to over UCI, and it is deliberately not a Python dependency of this project.
 
 ## Database
