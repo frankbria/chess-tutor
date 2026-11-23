@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     opponent_stockfish_move_seconds: float = Field(default=0.1, gt=0)
     opponent_min_think_seconds: float = Field(default=0.6, ge=0)
     opponent_max_think_seconds: float = Field(default=4.0, ge=0)
+    opponent_steering_enabled: bool = False  # stretch: bias replies toward FOCUS-concept motifs
+    opponent_steering_rate: float = Field(default=0.25, ge=0, le=1)  # share of moves steered
+    opponent_steering_max_eval_loss_centipawns: int = Field(default=30, ge=0)
     maia_enabled: bool = True  # tests that never play a game switch the engine off
 
     llm_provider: Literal["anthropic", "none"] = "anthropic"
