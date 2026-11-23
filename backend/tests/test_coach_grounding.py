@@ -1,3 +1,4 @@
+import re
 from collections.abc import AsyncIterator, Callable, Sequence
 
 import anthropic
@@ -420,6 +421,9 @@ async def test_real_coach_first_attempt_pass_rate_on_three_positions() -> None:
                     print(f"    FIRST-ATTEMPT ERROR {error.kind.value}: {error.message}")
                 assert not validate_reply(
                     CoachReply(text=grounded.text, fact_ids=grounded.fact_ids), context
+                )
+                assert not {"fact", "facts", "context"} & set(
+                    re.findall(r"[a-z]+", grounded.text.lower())
                 )
     first_attempt = sum(result.source is ReplySource.LLM for result in results)
     print(f"FIRST ATTEMPT PASSED: {first_attempt}/{len(results)}")

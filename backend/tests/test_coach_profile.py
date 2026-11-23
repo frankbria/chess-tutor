@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterator
 from datetime import UTC, datetime
 
@@ -62,7 +63,7 @@ def test_each_state_gets_its_directive() -> None:
     assert "socratic" in directives[ConceptStatus.RECURRING]
     assert "4 games" in directives[ConceptStatus.RECURRING]
     assert "current focus" in directives[ConceptStatus.FOCUS]
-    assert "hangingpiece" in directives[ConceptStatus.FOCUS]
+    assert "hanging piece puzzles" in directives[ConceptStatus.FOCUS]
     assert "brief" in directives[ConceptStatus.IMPROVING]
     assert "this one's back" in directives[ConceptStatus.MASTERED]
 
@@ -167,6 +168,7 @@ async def test_the_same_mistake_coached_three_times_escalates() -> None:
         assert not validate_reply(
             CoachReply(text=grounded.text, fact_ids=grounded.fact_ids), context
         )
+        assert not {"fact", "facts", "context"} & set(re.findall(r"[a-z]+", grounded.text.lower()))
         texts.append(grounded.text)
         print(f"[{status.value} x{count}] {grounded.source.value}: {grounded.text}")
     words = [len(text.split()) for text in texts]

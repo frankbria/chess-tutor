@@ -4,6 +4,7 @@ Each concept carries its state, its count and a style directive the coach follow
 few phrasings already used for it so the coach varies its wording.
 """
 
+import re
 from collections.abc import Mapping, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,17 +37,17 @@ class CoachProfile(BaseModel):
 def style_directive(concept: Concept, status: ConceptStatus, count: int) -> str:
     match status:
         case ConceptStatus.NEW:
-            return "First time seen: explain it fully, from the facts."
+            return "First time seen: explain it fully."
         case ConceptStatus.RECURRING:
             return (
                 f"This has now come up in {count} games: keep it short, ask a Socratic question "
                 "instead of explaining, and mention that it keeps happening."
             )
         case ConceptStatus.FOCUS:
-            theme = CONCEPTS[concept].practice_themes[0]
+            theme = re.sub(r"(?<!^)(?=[A-Z])", " ", CONCEPTS[concept].practice_themes[0]).lower()
             return (
                 "This is the player's current focus: say so, keep it short, and suggest "
-                f"practising the '{theme}' puzzle theme."
+                f"practising {theme} puzzles."
             )
         case ConceptStatus.IMPROVING:
             return "The player is improving here: one brief, encouraging line, little commentary."
