@@ -14,7 +14,8 @@ from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
 from chess_tutor.engines.human_moves import HumanMovePredictor
-from chess_tutor.engines.opponent import Maia3Opponent, OpponentEngine
+from chess_tutor.engines.opponent import OpponentEngine
+from chess_tutor.engines.routing import build_opponent
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.service import GameService
 from chess_tutor.models import Player, RatingHistory
@@ -56,7 +57,7 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
         app.state.game_events = GameEvents()
         game_opponent = opponent
         if game_opponent is None and settings.maia_enabled:
-            game_opponent = Maia3Opponent.from_settings(settings)
+            game_opponent = build_opponent(settings)
         if game_opponent is None:
             yield
             engine.dispose()
