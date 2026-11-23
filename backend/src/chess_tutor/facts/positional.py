@@ -9,6 +9,7 @@ import chess
 
 from chess_tutor.facts.detectors import piece_ref, side_of
 from chess_tutor.facts.models import Fact, FactType, Side
+from chess_tutor.openings.book import is_on_book_line
 from chess_tutor.settings import PhaseThresholds
 
 COLORS = (chess.WHITE, chess.BLACK)
@@ -246,11 +247,12 @@ def _repeated_piece_moves(board: chess.Board, color: chess.Color) -> list[chess.
     for move in board.move_stack:
         mover = replay.color_at(move.from_square)
         count = move_counts.pop(move.from_square, 0) + 1
+        replay.push(move)
         if mover == color:
-            move_counts[move.to_square] = count
+            # A repeat that stays in book is theory (Ruy Lopez Bb5-a4), so it does not count.
+            move_counts[move.to_square] = 1 if is_on_book_line(replay) else count
         else:
             move_counts.pop(move.to_square, None)
-        replay.push(move)
     return sorted(
         square
         for square, count in move_counts.items()

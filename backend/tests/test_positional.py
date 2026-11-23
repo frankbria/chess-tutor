@@ -119,9 +119,14 @@ def test_early_queen_is_flagged() -> None:
 
 
 def test_piece_moved_twice_uses_the_move_stack() -> None:
-    board = board_after("e4 e5 Nf3 Nc6 Bb5 a6 Ba4")
+    board = board_after("e4 e5 Qh5 Nc6 Qf3")
     assert "has moved more than once" in summaries(development(board))
     assert "moved more than once" not in summaries(development(chess.Board(board.fen())))
+
+
+def test_book_repeat_is_not_flagged() -> None:
+    board = board_after("e4 e5 Nf3 Nc6 Bb5 a6 Ba4")
+    assert "moved more than once" not in summaries(development(board))
 
 
 def test_centre_control_lead() -> None:
