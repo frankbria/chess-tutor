@@ -33,3 +33,14 @@ npm run lint && npm run typecheck && npm run build
 ```
 
 The app is an installable PWA. Browsers only offer install on `localhost` or over HTTPS, so to install on a phone, serve it over HTTPS (for example `tailscale serve`). Plain `http://` on the LAN loads the app but won't offer install.
+
+## Contributing
+
+Install the git hooks once per clone (requires [pre-commit](https://pre-commit.com/), plus the backend and frontend dependencies above):
+
+```bash
+pre-commit install
+pre-commit run --all-files   # ruff, black, mypy, eslint, tsc, secrets and file hygiene
+```
+
+CI (`.github/workflows/ci.yml`) runs the same checks plus tests and the frontend build on every PR.

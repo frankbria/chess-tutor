@@ -1,0 +1,53 @@
+# Install: pre-commit install   |   Run everything: pre-commit run --all-files
+# Project hooks are local so they use the versions pinned in each lockfile.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: check-yaml
+
+  - repo: local
+    hooks:
+      - id: check-secrets
+        name: check for secrets
+        entry: scripts/check-secrets.sh
+        language: script
+
+      - id: ruff
+        name: ruff (backend)
+        entry: uv run --project backend ruff check backend
+        language: system
+        files: ^backend/.*\.py$
+        pass_filenames: false
+
+      - id: black
+        name: black --check (backend)
+        entry: uv run --project backend black --check backend
+        language: system
+        files: ^backend/.*\.py$
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy --strict (backend)
+        entry: bash -c 'cd backend && uv run mypy src tests'
+        language: system
+        files: ^backend/.*\.py$
+        pass_filenames: false
+
+      - id: eslint
+        name: eslint (frontend)
+        entry: npm --prefix frontend run lint
+        language: system
+        files: ^frontend/.*\.(ts|tsx|mjs)$
+        pass_filenames: false
+
+      - id: typecheck
+        name: tsc (frontend)
+        entry: npm --prefix frontend run typecheck
+        language: system
+        files: ^frontend/.*\.(ts|tsx)$
+        pass_filenames: false
