@@ -36,6 +36,7 @@ dev = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = ["maia: needs the real Maia-3 engine (scripts/install_maia3.sh)"]
 addopts = "--cov=chess_tutor --cov-report=term-missing --cov-fail-under=85"
 
 [tool.ruff]
