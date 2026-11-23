@@ -47,8 +47,12 @@ class StockfishPool:
         await self.close()
 
     async def start(self) -> None:
-        for _ in range(self._size):
-            self._add(await self._spawn())
+        try:
+            for _ in range(self._size):
+                self._add(await self._spawn())
+        except BaseException:
+            await self.close()
+            raise
 
     async def close(self) -> None:
         engines, self._engines = self._engines, []
@@ -63,17 +67,21 @@ class StockfishPool:
         return [self._pid(engine) for engine in self._engines]
 
     async def analyse(
-        self, board: chess.Board, budget: Budget, multipv: int = 1
+        self, board: chess.Board, budget: Budget | chess.engine.Limit, multipv: int = 1
     ) -> list[AnalysedLine]:
+        limit = budget.value if isinstance(budget, Budget) else budget
         engine = await self._idle.get()
+        live: chess.engine.UciProtocol | None = engine
         try:
             try:
-                infos = await engine.analyse(board, budget.value, multipv=multipv)
+                infos = await engine.analyse(board, limit, multipv=multipv)
             except chess.engine.EngineTerminatedError:
-                engine = await self._replace(engine)
-                infos = await engine.analyse(board, budget.value, multipv=multipv)
+                live = None  # a dead engine must never return to the idle queue
+                live = await self._replace(engine)
+                infos = await live.analyse(board, limit, multipv=multipv)
         finally:
-            self._idle.put_nowait(engine)
+            if live is not None:
+                self._idle.put_nowait(live)
         return [
             AnalysedLine(
                 white_score=info["score"].white(),

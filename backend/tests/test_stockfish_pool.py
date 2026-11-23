@@ -2,6 +2,7 @@ import asyncio
 import os
 import signal
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import chess
 import chess.engine
@@ -68,7 +69,7 @@ async def test_more_requests_than_engines_all_complete_within_pool_size(
 
     assert len(results) == POOL_SIZE * 3
     assert all(result for result in results)
-    assert 1 <= peak <= POOL_SIZE
+    assert peak == POOL_SIZE
     assert pool.in_use == 0
 
 
@@ -101,3 +102,50 @@ async def test_close_terminates_every_engine() -> None:
     for pid in pids:
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)
+
+
+async def test_time_limit_is_accepted_instead_of_a_budget(pool: StockfishPool) -> None:
+    lines = await pool.analyse(chess.Board(MATE_IN_ONE), chess.engine.Limit(time=0.05))
+
+    assert lines[0].white_score == chess.engine.Mate(1)
+
+
+async def test_failed_replacement_leaves_pool_one_short_without_the_dead_engine(
+    pool: StockfishPool,
+) -> None:
+    os.kill(pool.engine_pids()[0], signal.SIGKILL)
+    await asyncio.sleep(0.2)
+    pool._path = "/nonexistent/stockfish"
+
+    with pytest.raises(FileNotFoundError):
+        await pool.analyse(chess.Board(), Budget.QUICK)
+
+    assert len(pool.engine_pids()) == POOL_SIZE - 1
+    assert pool.in_use == 0
+    assert (await pool.analyse(chess.Board(), Budget.QUICK))[0].pv
+
+
+async def test_failed_start_quits_engines_that_were_already_spawned(tmp_path: Path) -> None:
+    marker = tmp_path / "spawned-once"
+    script = tmp_path / "flaky-stockfish"
+    script.write_text(
+        f"#!/bin/sh\nif [ -e {marker} ]; then exit 1; fi\ntouch {marker}\n"
+        "exec /usr/games/stockfish\n"
+    )
+    script.chmod(0o755)
+    failing_pool = StockfishPool(str(script), POOL_SIZE)
+    before = _stockfish_process_count()
+
+    with pytest.raises(chess.engine.EngineTerminatedError):
+        await failing_pool.start()
+
+    assert failing_pool.engine_pids() == []
+    assert _stockfish_process_count() == before
+
+
+def _stockfish_process_count() -> int:
+    return sum(
+        1
+        for entry in Path("/proc").iterdir()
+        if entry.name.isdigit() and (entry / "comm").read_text().strip() == "stockfish"
+    )
