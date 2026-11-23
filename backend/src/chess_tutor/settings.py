@@ -14,6 +14,11 @@ class ClassificationThresholds(BaseModel):
     inaccuracy: float = 5.0
     mistake: float = 10.0
     blunder: float = 20.0
+    best_loss: float = 1.0  # a move losing less than this counts as the engine's best
+    great_alternative_gap: float = 15.0  # the runner-up must trail the best move by this much
+    brilliant_max_loss: float = 2.0
+    brilliant_min_sacrifice: int = 2  # net material (pawns) the move gives up, e.g. a minor piece
+    brilliant_min_win_probability: float = 40.0  # the sacrifice must not leave the mover losing
 
 
 class PhaseThresholds(BaseModel):
