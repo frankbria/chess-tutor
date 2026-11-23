@@ -34,6 +34,10 @@ make lint                # every package's lint, format and type checks
 | `CHESS_TUTOR_COACHING_MODEL` / `CHESS_TUTOR_CHEAP_MODEL` | `claude-sonnet-5-5` / `claude-haiku-5-5` | Model tiers |
 | `CHESS_TUTOR_THRESHOLDS__...` | see `settings.py` | Classification, phase, concept-state and rating-weight thresholds |
 
+## Database
+
+Player data lives in a SQLite file at `CHESS_TUTOR_DATABASE_PATH` (default `data/chess_tutor.db`, created on first run). Alembic migrations (`backend/migrations`) run automatically on backend startup, which also seeds the default player once.
+
 ## Running the backend
 
 Requires [uv](https://docs.astral.sh/uv/).
