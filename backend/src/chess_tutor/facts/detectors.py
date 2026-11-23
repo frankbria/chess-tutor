@@ -71,34 +71,29 @@ KING_EXCHANGE_VALUE = 100
 
 
 def _is_hanging(board: chess.Board, square: chess.Square, color: chess.Color) -> bool:
-    attackers = _capturers(board, not color, square)
-    if not attackers:
-        return False
-    defenders = _capturers(board, color, square)
-    return (
-        _exchange_gain(
-            _value(board, square),
-            sorted(_exchange_value(board, a) for a in attackers),
-            sorted(_exchange_value(board, d) for d in defenders),
-        )
-        > 0
-    )
+    return _exchange_gain(board, square, not color) > 0
 
 
 def _exchange_value(board: chess.Board, square: chess.Square) -> int:
     # A king may only capture last: giving it a huge value makes recapturing it never pay.
-    return (
-        KING_EXCHANGE_VALUE if board.piece_type_at(square) == chess.KING else _value(board, square)
-    )
+    if board.piece_type_at(square) == chess.KING:
+        return KING_EXCHANGE_VALUE
+    return _value(board, square)
 
 
-def _exchange_gain(target_value: int, attackers: list[int], defenders: list[int]) -> int:
-    """Static exchange: what the side to capture wins on this square, each side capturing with
-    its cheapest piece and free to stop. Values must be sorted ascending."""
-    # shortcut: ignores x-ray attackers behind the first capturer, add them if batteries matter
-    if not attackers:
+def _exchange_gain(board: chess.Board, square: chess.Square, capturing: chess.Color) -> int:
+    """Static exchange: what `capturing` wins on `square` if both sides capture with their
+    cheapest piece and may stop at any point. Playing each capture on a board copy lets pieces
+    behind the capturer (doubled rooks, queen behind bishop) join in."""
+    capturers = _capturers(board, capturing, square)
+    if not capturers:
         return 0
-    return max(0, target_value - _exchange_gain(attackers[0], defenders, attackers[1:]))
+    cheapest = min(capturers, key=lambda capturer: _exchange_value(board, capturer))
+    target_value = _exchange_value(board, square)
+    after = board.copy(stack=False)
+    capturing_piece = after.remove_piece_at(cheapest)
+    after.set_piece_at(square, capturing_piece)
+    return max(0, target_value - _exchange_gain(after, square, not capturing))
 
 
 def hanging_pieces(board: chess.Board) -> list[Fact]:

@@ -27,6 +27,11 @@ def hanging_ids(fen: str) -> set[str]:
         ("5k2/8/3b4/4n3/1B6/8/8/4R1K1 w - - 0 1", {"hanging:b4", "hanging:d6", "hanging:e5"}),
         # attacked twice by knights, defended once by a knight: the exchange wins a piece
         ("4k3/8/2n5/4n3/2N5/5N2/8/4K3 w - - 0 1", {"hanging:c4", "hanging:e5", "hanging:f3"}),
+        # doubled rooks: Rxd5 exd5 Rxd5 wins, the second rook joins through the first (x-ray)
+        ("4k3/8/4p3/3r4/8/8/3R4/3RK3 w - - 0 1", {"hanging:d5"}),
+        # Rxd8+ wins: the king can't recapture because the queen behind the rook covers d8.
+        # White's d2 rook (attacked once, defended by the queen) is not hanging.
+        ("3rk3/8/8/8/8/8/3R4/3QK3 w - - 0 1", {"hanging:d8"}),
     ],
 )
 def test_hanging_positive(fen: str, expected: set[str]) -> None:
@@ -39,8 +44,6 @@ def test_hanging_positive(fen: str, expected: set[str]) -> None:
         START,
         # rooks attack each other once and each is defended once by its king
         "8/8/8/4k3/3r4/8/8/3RK3 w - - 0 1",
-        # rook attacked by an equal rook, defended by queen and king
-        "3rk3/8/8/8/8/8/3R4/3QK3 w - - 0 1",
         # a defender that is not pinned still defends
         "5k2/8/3b4/4n3/8/8/8/4R1K1 w - - 0 1",
         # attacked twice by rooks, defended by a pawn: Rxe5 dxe5 loses the exchange
