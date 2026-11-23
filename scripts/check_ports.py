@@ -21,8 +21,17 @@ def is_free(port: int) -> bool:
 
 def main(labelled_ports: list[str]) -> int:
     busy = []
+    claimed: dict[int, str] = {}
     for labelled_port in labelled_ports:
         name, _, port = labelled_port.partition("=")
+        if int(port) in claimed:
+            print(
+                f"error: {claimed[int(port)]} and {name} are both set to port {port}. "
+                "Give them different ports.",
+                file=sys.stderr,
+            )
+            return 1
+        claimed[int(port)] = name
         if not is_free(int(port)):
             busy.append((name, int(port)))
     for name, port in busy:

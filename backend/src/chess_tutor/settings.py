@@ -4,6 +4,7 @@ from typing import Literal, Self
 from pydantic import BaseModel, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+PLACEHOLDER_API_KEY = "replace-me"  # the value shipped in .env.example
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -64,9 +65,14 @@ class Settings(BaseSettings):
 
     thresholds: Thresholds = Thresholds()
 
+    def _has_usable_api_key(self) -> bool:
+        if self.llm_api_key is None:
+            return False
+        return self.llm_api_key.get_secret_value().strip() not in ("", PLACEHOLDER_API_KEY)
+
     @model_validator(mode="after")
     def require_api_key_for_llm_provider(self) -> Self:
-        if self.llm_provider != "none" and self.llm_api_key is None:
+        if self.llm_provider != "none" and not self._has_usable_api_key():
             raise ValueError(
                 "CHESS_TUTOR_LLM_API_KEY is required (set it in .env or the environment, "
                 "or set CHESS_TUTOR_LLM_PROVIDER=none to run without a coach)"

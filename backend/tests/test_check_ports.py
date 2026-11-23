@@ -49,3 +49,12 @@ def test_port_busy_on_all_interfaces_only_is_detected() -> None:
         result = run_check(f"FRONTEND_PORT={busy}")
 
     assert result.returncode != 0
+
+
+def test_two_variables_sharing_a_port_are_reported_by_name() -> None:
+    port = free_port()
+    result = run_check(f"CHESS_TUTOR_BACKEND_PORT={port}", f"FRONTEND_PORT={port}")
+
+    assert result.returncode != 0
+    assert "CHESS_TUTOR_BACKEND_PORT" in result.stderr
+    assert "FRONTEND_PORT" in result.stderr

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from chess_tutor.settings import REPOSITORY_ROOT, Settings
 
@@ -56,3 +56,9 @@ def test_defaults_match_the_spec() -> None:
     assert settings.database_path == REPOSITORY_ROOT / "data" / "chess_tutor.db"
     assert settings.thresholds.rating_weights.regular == 1.0
     assert settings.thresholds.tutor_stretch_offset == 100
+
+
+@pytest.mark.parametrize("blank_key", ["", "   ", "replace-me"])
+def test_blank_or_placeholder_api_key_counts_as_missing(blank_key: str) -> None:
+    with pytest.raises(ValidationError, match="CHESS_TUTOR_LLM_API_KEY"):
+        Settings(_env_file=None, llm_api_key=SecretStr(blank_key))

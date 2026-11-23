@@ -17,7 +17,7 @@ make test                # every package's tests
 make lint                # every package's lint, format and type checks
 ```
 
-`make dev` refuses to start, naming the variable to change, if a port is busy. The backend refuses to start without `CHESS_TUTOR_LLM_API_KEY` unless `CHESS_TUTOR_LLM_PROVIDER=none`. Settings come from the environment or the root `.env`.
+`make dev` refuses to start, naming the variable to change, if a port is busy. The backend refuses to start without `CHESS_TUTOR_LLM_API_KEY` unless `CHESS_TUTOR_LLM_PROVIDER=none`. Settings come from the environment or the root `.env`. `make dev` does not read `.env`: its ports come only from the environment or the 8000/3000 defaults.
 
 | Variable | Default | Purpose |
 |---|---|---|
