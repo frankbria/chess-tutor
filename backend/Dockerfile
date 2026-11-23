@@ -30,7 +30,6 @@ RUN cd backend && uv sync --locked --no-dev
 
 RUN useradd --system --create-home app && mkdir -p /data && chown app /data
 USER app
-VOLUME /data
 
 WORKDIR /app/backend
 ENV PATH="/app/backend/.venv/bin:$PATH"
