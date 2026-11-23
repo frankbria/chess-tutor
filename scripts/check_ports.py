@@ -1,4 +1,6 @@
-"""Exit non-zero, naming the env var to change, if any NAME=PORT argument is already in use."""
+"""Exit non-zero, naming the env var to change, if any NAME=PORT argument is already in use.
+
+Usage: check_ports.py [--host BIND_HOST] NAME=PORT ..."""
 
 import socket
 import sys
@@ -19,7 +21,27 @@ def is_free(port: int) -> bool:
     return True
 
 
-def main(labelled_ports: list[str]) -> int:
+def bind_host_exists(bind_host: str) -> bool:
+    with closing(socket.socket()) as probe:
+        try:
+            probe.bind((bind_host, 0))
+        except OSError:
+            return False
+    return True
+
+
+def main(arguments: list[str]) -> int:
+    bind_host = "127.0.0.1"
+    if arguments[:1] == ["--host"]:
+        bind_host, arguments = arguments[1], arguments[2:]
+    labelled_ports = arguments
+    if not bind_host_exists(bind_host):
+        print(
+            f"error: cannot bind {bind_host} on this machine. Set DEV_HOST to 127.0.0.1, 0.0.0.0 "
+            "or one of this machine's addresses.",
+            file=sys.stderr,
+        )
+        return 1
     busy = []
     claimed: dict[int, str] = {}
     for labelled_port in labelled_ports:

@@ -58,3 +58,11 @@ def test_two_variables_sharing_a_port_are_reported_by_name() -> None:
     assert result.returncode != 0
     assert "CHESS_TUTOR_BACKEND_PORT" in result.stderr
     assert "FRONTEND_PORT" in result.stderr
+
+
+def test_bind_host_that_is_not_an_address_of_this_machine_is_reported() -> None:
+    result = run_check("--host", "192.0.2.1", f"FRONTEND_PORT={free_port()}")
+
+    assert result.returncode != 0
+    assert "192.0.2.1" in result.stderr
+    assert "DEV_HOST" in result.stderr
