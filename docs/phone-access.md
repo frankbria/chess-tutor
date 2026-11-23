@@ -37,7 +37,7 @@ Do not use `tailscale funnel`: that publishes the app to the public internet.
 make dev DEV_HOST=0.0.0.0 PUBLIC_HOST=192.168.x.y    # your computer's LAN address
 ```
 
-Open `http://192.168.x.y:3000` on a phone on the same Wi-Fi. Find the address with `ip addr` (Linux), `ipconfig getifaddr en0` (macOS) or `ipconfig` (Windows). The game works, but browsers will not offer to install it, because plain HTTP is not a secure context. `DEV_HOST=0.0.0.0` exposes the frontend to everyone on that network, so use it on networks you trust.
+Open `http://192.168.x.y:3000` on a phone on the same Wi-Fi. Find the address with `ip addr` (Linux), `ipconfig getifaddr en0` (macOS) or `ipconfig` (Windows). The game works, but browsers will not offer to install it, because plain HTTP is not a secure context. `DEV_HOST=0.0.0.0` exposes a development server (debug endpoints, source maps) to everyone on that network: use it on trusted networks only. For anything else, use the Docker deployment behind HTTPS ([deploy/README.md](../deploy/README.md)).
 
 `make dev` stops with a message naming the variable if the port is busy or `DEV_HOST` is not one of this computer's addresses.
 
@@ -59,4 +59,4 @@ The icon opens the app full screen, like a native app.
 - **No install option.** The address must start with `https://`, and iOS requires Safari. Confirm with `tailscale serve status`.
 - **Moves from the opponent never appear.** Server-sent events pass through `/api`; a different proxy in front must not buffer them (see the Caddy `flush_interval -1` note in [deploy/README.md](../deploy/README.md)).
 
-`make dev` proxies `/api` in development only. The Docker deployment bakes its API address into the frontend image; see [deploy/README.md](../deploy/README.md).
+`make dev` proxies `/api` by setting `BACKEND_INTERNAL_URL`; a build without it (the Docker image) ships no proxy. The Docker deployment bakes its API address into the frontend image; see [deploy/README.md](../deploy/README.md).

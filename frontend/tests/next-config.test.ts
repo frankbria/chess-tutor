@@ -6,12 +6,18 @@ async function loadConfig() {
 }
 
 describe("next.config", () => {
-  afterEach(() => vi.unstubAllEnvs());
+  const originalBackendUrl = process.env.BACKEND_INTERNAL_URL;
 
-  it("proxies /api to the local backend by default", async () => {
-    vi.stubEnv("BACKEND_INTERNAL_URL", undefined);
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (originalBackendUrl === undefined) delete process.env.BACKEND_INTERNAL_URL;
+    else process.env.BACKEND_INTERNAL_URL = originalBackendUrl;
+  });
+
+  it("ships no proxy unless BACKEND_INTERNAL_URL is set", async () => {
+    delete process.env.BACKEND_INTERNAL_URL;
     const config = await loadConfig();
-    expect(await config.rewrites?.()).toEqual([{ source: "/api/:path*", destination: "http://127.0.0.1:8000/:path*" }]);
+    expect(await config.rewrites?.()).toEqual([]);
   });
 
   it("proxies /api to BACKEND_INTERNAL_URL", async () => {
@@ -26,7 +32,7 @@ describe("next.config", () => {
   });
 
   it("allows no extra dev origins without PUBLIC_HOST", async () => {
-    vi.stubEnv("PUBLIC_HOST", "");
+    delete process.env.PUBLIC_HOST;
     expect((await loadConfig()).allowedDevOrigins).toEqual([]);
   });
 });

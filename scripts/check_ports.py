@@ -11,8 +11,8 @@ from contextlib import closing
 HOSTS = ("0.0.0.0", "127.0.0.1")
 
 
-def is_free(port: int) -> bool:
-    for host in HOSTS:
+def is_free(port: int, bind_host: str) -> bool:
+    for host in {*HOSTS, bind_host}:
         with closing(socket.socket()) as probe:
             try:
                 probe.bind((host, port))
@@ -54,7 +54,7 @@ def main(arguments: list[str]) -> int:
             )
             return 1
         claimed[int(port)] = name
-        if not is_free(int(port)):
+        if not is_free(int(port), bind_host):
             busy.append((name, int(port)))
     for name, port in busy:
         print(f"error: port {port} is already in use. Set {name} to a free port.", file=sys.stderr)
