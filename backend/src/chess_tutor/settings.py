@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     stockfish_pool_size: int = Field(default=2, ge=1)
     maia_command: str = "maia3-uci"
     maia_policy_command: str = ""  # empty: the maia3 uv tool interpreter + tools/maia3_policy
+    maia_policy_startup_timeout_seconds: float = Field(default=60, gt=0)
+    maia_policy_timeout_seconds: float = Field(default=10, gt=0)
     maia_model: Literal["3m", "5m", "23m", "79m"] = "5m"
     maia_device: str = "cpu"
     maia_enabled: bool = True  # tests that never play a game switch the engine off

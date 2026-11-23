@@ -33,8 +33,9 @@ def legal_move_probabilities(engine: Maia3UCIEngine, fen: str, elo: int, k: int)
     moves = []
     for probability, index in zip(top_probabilities.tolist(), top_indices.tolist()):
         move = engine._move_from_index(index)
-        if move is not None:
-            moves.append({"uci": move.uci(), "probability": probability})
+        if move is None:
+            raise ValueError(f"cannot decode move index {index}")
+        moves.append({"uci": move.uci(), "probability": probability})
     return moves
 
 

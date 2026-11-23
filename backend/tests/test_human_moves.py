@@ -7,7 +7,11 @@ import chess.engine
 import pytest
 import pytest_asyncio
 
-from chess_tutor.engines.human_moves import HumanMovePredictionError, HumanMovePredictor
+from chess_tutor.engines.human_moves import (
+    HumanMovePredictionError,
+    HumanMovePredictor,
+    default_policy_command,
+)
 from chess_tutor.settings import Settings
 
 pytestmark = [pytest.mark.maia, pytest.mark.asyncio(loop_scope="module")]
@@ -112,14 +116,136 @@ async def test_settings_drive_the_helper() -> None:
         assert len(await started.predict_human_moves(chess.Board(), 800, 2)) == 2
 
 
+READY = "print('{\"ready\": true}', flush=True)\n"
+
+
+def write_helper(tmp_path: Path, source: str) -> list[str]:
+    script = tmp_path / "stand_in_helper.py"
+    script.write_text("import sys, time\n" + source)
+    return [sys.executable, str(script)]
+
+
+def assert_no_helper_left(predictor: HumanMovePredictor, pid: int | None) -> None:
+    assert predictor._process is None
+    if pid is not None:
+        assert not Path(f"/proc/{pid}").exists()
+
+
+def respond_with(moves_json: str) -> str:
+    return READY + f"for _ in sys.stdin:\n    print('{moves_json}', flush=True)\n"
+
+
 async def test_illegal_helper_move_is_rejected(tmp_path: Path) -> None:
-    fake_helper = tmp_path / "fake_helper.py"
-    fake_helper.write_text(
-        "import sys\n"
-        "print('{\"ready\": true}', flush=True)\n"
-        "for _ in sys.stdin:\n"
-        '    print(\'{"moves": [{"uci": "e2e5", "probability": 1.0}]}\', flush=True)\n'
+    command = write_helper(
+        tmp_path, respond_with('{"moves": [{"uci": "e2e5", "probability": 1.0}]}')
     )
-    async with HumanMovePredictor([sys.executable, str(fake_helper)]) as started:
+    async with HumanMovePredictor(command) as started:
         with pytest.raises(HumanMovePredictionError, match="illegal move e2e5"):
             await started.predict_human_moves(chess.Board(), 1500, 1)
+
+
+@pytest.mark.parametrize(
+    ("moves_json", "message"),
+    [
+        (
+            '{"moves": [{"uci": "e2e4", "probability": 0.2}, {"uci": "d2d4", "probability": 0.5}]}',
+            "not sorted",
+        ),
+        ('{"moves": [{"uci": "e2e4", "probability": 1.5}]}', "outside"),
+        (
+            '{"moves": [{"uci": "e2e4", "probability": 0.8}, {"uci": "d2d4", "probability": 0.7}]}',
+            "sum above 1",
+        ),
+        ('{"moves": [{"uci": "zzzz", "probability": 0.5}]}', "unparseable"),
+    ],
+)
+async def test_invalid_helper_output_is_rejected(
+    tmp_path: Path, moves_json: str, message: str
+) -> None:
+    async with HumanMovePredictor(write_helper(tmp_path, respond_with(moves_json))) as started:
+        with pytest.raises(HumanMovePredictionError, match=message):
+            await started.predict_human_moves(chess.Board(), 1500, 2)
+
+
+async def test_helper_error_line_is_reported(tmp_path: Path) -> None:
+    command = write_helper(tmp_path, respond_with('{"error": "boom"}'))
+    async with HumanMovePredictor(command) as started:
+        with pytest.raises(HumanMovePredictionError, match="boom"):
+            await started.predict_human_moves(chess.Board(), 1500, 1)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "print('not json', flush=True)\ntime.sleep(60)\n",
+        "print('{\"moves\": []}', flush=True)\ntime.sleep(60)\n",
+        "print('{\"ready\": false}', flush=True)\ntime.sleep(60)\n",
+        "sys.exit(3)\n",
+        "time.sleep(60)\n",
+    ],
+)
+async def test_failed_startup_raises_and_leaks_nothing(tmp_path: Path, source: str) -> None:
+    predictor = HumanMovePredictor(write_helper(tmp_path, source), startup_timeout_seconds=1)
+    with pytest.raises(HumanMovePredictionError):
+        await predictor.start()
+    assert_no_helper_left(predictor, None)
+
+
+async def test_startup_error_includes_stderr_tail(tmp_path: Path) -> None:
+    command = write_helper(tmp_path, "print('model exploded', file=sys.stderr)\nsys.exit(3)\n")
+    with pytest.raises(HumanMovePredictionError, match="model exploded"):
+        await HumanMovePredictor(command).start()
+
+
+async def test_spawn_failure_is_a_prediction_error() -> None:
+    with pytest.raises(HumanMovePredictionError):
+        await HumanMovePredictor(["/no/such/helper"]).start()
+
+
+async def test_prediction_timeout_kills_the_helper_and_allows_restart(tmp_path: Path) -> None:
+    command = write_helper(
+        tmp_path,
+        READY + "for _ in sys.stdin:\n    time.sleep(60)\n",
+    )
+    predictor = HumanMovePredictor(command, request_timeout_seconds=0.5)
+    await predictor.start()
+    assert predictor._process is not None
+    pid = predictor._process.pid
+    with pytest.raises(HumanMovePredictionError, match="timed out"):
+        await predictor.predict_human_moves(chess.Board(), 1500, 1)
+    assert_no_helper_left(predictor, pid)
+    await predictor.start()
+    assert predictor._process is not None
+    await predictor.close()
+
+
+async def test_helper_dying_mid_session_marks_the_predictor_stopped(tmp_path: Path) -> None:
+    command = write_helper(
+        tmp_path, READY + "print('last words', file=sys.stderr, flush=True)\nsys.exit(1)\n"
+    )
+    predictor = HumanMovePredictor(command)
+    await predictor.start()
+    assert predictor._process is not None
+    pid = predictor._process.pid
+    await predictor._process.wait()
+    for _ in range(2):  # EOF/broken pipe first, then "not started"
+        with pytest.raises(HumanMovePredictionError):
+            await predictor.predict_human_moves(chess.Board(), 1500, 1)
+    assert_no_helper_left(predictor, pid)
+
+
+async def test_exit_after_request_reports_stderr(tmp_path: Path) -> None:
+    command = write_helper(
+        tmp_path,
+        READY
+        + "sys.stdin.readline()\nprint('last words', file=sys.stderr, flush=True)\nsys.exit(1)\n",
+    )
+    async with HumanMovePredictor(command) as predictor:
+        with pytest.raises(HumanMovePredictionError, match="last words"):
+            await predictor.predict_human_moves(chess.Board(), 1500, 1)
+        assert_no_helper_left(predictor, None)
+
+
+async def test_default_policy_command_is_resolved_once() -> None:
+    first = await default_policy_command()
+    assert await default_policy_command() is first
