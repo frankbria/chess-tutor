@@ -369,8 +369,11 @@ def test_predictor_is_only_started_when_maia_is_enabled(settings: Settings) -> N
     with TestClient(create_app(unrunnable, ScriptedOpponent())):
         pass  # maia disabled: the unrunnable helper is never launched
 
-    with pytest.raises(HumanMovePredictionError), TestClient(
-        create_app(unrunnable.model_copy(update={"maia_enabled": True}), ScriptedOpponent())
+    with (
+        pytest.raises(HumanMovePredictionError),
+        TestClient(
+            create_app(unrunnable.model_copy(update={"maia_enabled": True}), ScriptedOpponent())
+        ),
     ):
         pass
 
