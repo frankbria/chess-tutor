@@ -2,11 +2,11 @@
 
 Rules `validate_reply` enforces on `reply.text`:
 - every id in `fact_ids` is among the facts the model was shown (after pre-lock-in filtering);
-- a SAN move (piece moves, pawn captures, promotions, castling; check marks ignored) must appear
-  in a cited fact's `san_lines`, and that line must replay legally with python-chess from the
-  packet position, from the position after the move being commented on, or from the same
-  position with the opponent to move (threat facts). The move being commented on and, after
-  lock-in, the best move and line are also allowed;
+- a SAN move (piece moves, pawn captures, promotions, castling; check marks ignored when
+  matching) must appear in a cited fact's `san_lines`, and that line must replay legally with
+  python-chess from the packet position, from the position after the move being commented on, or
+  from the same position with the opponent to move (threat facts). The move being commented on
+  and, after lock-in, the best move and line are also allowed;
 - a bare square ("e4", matched only as a standalone [a-h][1-8] token) must appear in a cited
   fact's `squares` or `pieces`; a bare token that equals a verified pawn move is accepted as
   that move;
@@ -14,8 +14,10 @@ Rules `validate_reply` enforces on `reply.text`:
   the piece type: a cited fact's piece on the square when there is one, else the actual board
   (the packet position, the position after the commented move, or any position along a verified
   line). A square no board shows that piece on is rejected;
-- a bare square right after move wording ("play e4", "then e5", "try d4") is read as a move and
-  needs a verified line, not just a cited square;
+- a pawn push with a check, mate or promotion mark ("e4+", "e8=Q") is a move too;
+- a bare square right after move wording ("play e4", "then e5", "try d4", "with e4, White...") is
+  read as a move and needs a verified line, not just a cited square; "with <square>" counts unless a
+  state word follows the square or square list, so "with a8 and e8 both attacked" stays descriptive;
 - Active mode before lock-in: the best move's SAN may not appear at all;
 - the reply may not talk about a correction ("Good catch", "Let me redo", "Sorry", "rewrite",
   "my previous reply"): such text is for the operator, never for the student;
@@ -50,7 +52,7 @@ _SQUARE = r"[a-h][1-8]"
 _SAN = re.compile(
     rf"(?<![\w-])(?:O-O-O|O-O|0-0-0|0-0"
     rf"|[KQRBN][a-h]?[1-8]?x?{_SQUARE}"
-    rf"|[a-h]x{_SQUARE}(?:=[QRBN])?|{_SQUARE}=[QRBN])[+#]?(?!\w)"
+    rf"|[a-h]x{_SQUARE}(?:=[QRBN])?|{_SQUARE}=[QRBN]|{_SQUARE}(?=[+#]))[+#]?(?!\w)"
 )
 _SQUARE_TOKEN = re.compile(rf"(?<![\w-])({_SQUARE})(?!\w)")
 _PIECE_NAMES = "king|queen|rook|bishop|knight|pawn"
@@ -59,8 +61,18 @@ _PIECE_ON_SQUARE = re.compile(
 )
 _SQUARE_THEN_PIECE = re.compile(rf"(?<![\w-])({_SQUARE})\s+({_PIECE_NAMES})s?\b", re.IGNORECASE)
 _MOVE_WORDING = re.compile(
-    rf"\b(?:play|plays|played|playing|push|pushes|pushing|with|after|then|try|instead of)\s+"
+    rf"\b(?:play|plays|played|playing|push|pushes|pushing|after|then|try|instead of)\s+"
     rf"({_SQUARE})(?!\w)",
+    re.IGNORECASE,
+)
+# "with e4, White..." / "Start with e4 or d4." recommend moves; a state word after the square or
+# square list ("with a8 and e8 both attacked", "with e8 hanging") describes the position instead.
+# shortcut: the state words are a fixed list, extend it when a real reply trips over a new one.
+_WITH_MOVE = re.compile(
+    rf"\bwith\s+({_SQUARE})(?!\w)"
+    rf"(?!(?:\s*(?:,|\s(?:and|or)\s)\s*{_SQUARE}(?!\w))*"
+    r"\s+(?:attacked|defended|hanging|weak|controlled|pinned|under|both|all|covered|guarded"
+    r"|undefended|unprotected|loose|safe|empty|occupied)\b)",
     re.IGNORECASE,
 )
 _CORRECTION_OPENING = re.compile(
@@ -266,7 +278,9 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
             )
 
     verified = _verified_references(cited, context)
-    moves_by_wording = {m.group(1) for m in _MOVE_WORDING.finditer(bare_text)}
+    moves_by_wording = {
+        m.group(1) for pattern in (_MOVE_WORDING, _WITH_MOVE) for m in pattern.finditer(bare_text)
+    }
     for move in [*mentioned_moves, *sorted(moves_by_wording)]:
         if _plain(move) not in verified.sans:
             errors.append(
