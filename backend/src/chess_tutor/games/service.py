@@ -152,6 +152,13 @@ class GameService:
         with Session(self._engine, expire_on_commit=False) as session:
             return self._get(session, game_id)
 
+    def list_games(self, status: GameStatus | None = None) -> list[Game]:
+        query = select(Game).order_by(Game.id.desc())
+        if status is not None:
+            query = query.where(Game.status == status)
+        with Session(self._engine, expire_on_commit=False) as session:
+            return list(session.scalars(query))
+
     def get_board(self, game_id: int) -> chess.Board:
         with Session(self._engine) as session:
             self._get(session, game_id)
