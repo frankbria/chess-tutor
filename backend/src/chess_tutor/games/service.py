@@ -118,12 +118,24 @@ class GameService:
                 move = self._parse_legal_move(board, uci)
                 self._push(session, game, board, move)
                 session.commit()
-            return await self._reply(game_id)
+        return await self.play_opponent_move(game_id)
 
     async def play_opponent_move(self, game_id: int) -> Game:
         """Play the opponent's move if it is due; call again after an OpponentUnavailableError."""
+        await self._think(game_id)
         async with self._move_lock:
             return await self._reply(game_id)
+
+    async def _think(self, game_id: int) -> None:
+        """Humanised wait outside the lock; _reply re-reads the game so a resign meanwhile wins."""
+        if self._pacing is None:
+            return
+        with Session(self._engine, expire_on_commit=False) as session:
+            game = self._get(session, game_id)
+            board = self._board(session, game_id)
+            if game.status is not GameStatus.ACTIVE or board.turn == chess_color(game.player_color):
+                return
+        await self._pacing.pause(board, game.opponent_elo)
 
     async def _reply(self, game_id: int) -> Game:
         with Session(self._engine, expire_on_commit=False) as session:
@@ -131,8 +143,6 @@ class GameService:
             board = self._board(session, game_id)
             if game.status is not GameStatus.ACTIVE or board.turn == chess_color(game.player_color):
                 return game
-            if self._pacing is not None:
-                await self._pacing.pause(board, game.opponent_elo)
             try:
                 move = await self._opponent.choose_move(board, game.opponent_elo)
             # The engine is an external process: any failure there means no reply.
@@ -157,6 +167,13 @@ class GameService:
     def get_game(self, game_id: int) -> Game:
         with Session(self._engine, expire_on_commit=False) as session:
             return self._get(session, game_id)
+
+    def list_games(self, status: GameStatus | None = None) -> list[Game]:
+        query = select(Game).order_by(Game.id.desc())
+        if status is not None:
+            query = query.where(Game.status == status)
+        with Session(self._engine, expire_on_commit=False) as session:
+            return list(session.scalars(query))
 
     def get_board(self, game_id: int) -> chess.Board:
         with Session(self._engine) as session:

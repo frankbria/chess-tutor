@@ -39,7 +39,8 @@ def think_time_seconds(
 
 
 class OpponentPacing:
-    """Waits a humanised time before the opponent plays; never blocks the game on the predictor."""
+    """Waits a humanised time before the opponent plays; a predictor failure or timeout (the
+    policy helper's own) falls back to the minimum delay."""
 
     def __init__(
         self,

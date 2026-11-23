@@ -9,6 +9,13 @@ from chess_tutor.facts.tactics import (
     pins,
     skewers,
 )
+from chess_tutor.facts.threats import (
+    back_rank_weaknesses,
+    mate_threats,
+    mates_in_one,
+    overloaded_defenders,
+    trapped_pieces,
+)
 
 
 def build_fact_packet(board: chess.Board) -> FactPacket:
@@ -23,5 +30,10 @@ def build_fact_packet(board: chess.Board) -> FactPacket:
             *pins(board),
             *skewers(board),
             *discovered_attacks(board),
+            *back_rank_weaknesses(board),
+            *mates_in_one(board),
+            *mate_threats(board),
+            *overloaded_defenders(board),
+            *trapped_pieces(board),
         ],
     )
