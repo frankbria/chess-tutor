@@ -7,3 +7,15 @@ An AI-assisted chess tutor. Play a human-like engine (Maia-3) at your level whil
 **Status:** design phase. See the [design spec](docs/specs/2026-11-23-chess-tutor-design.md) and the [issue tracker](https://github.com/frankbria/chess-tutor/issues) for the build plan.
 
 **Stack:** FastAPI + python-chess + Stockfish + Maia-3 · Next.js PWA (shadcn/ui, chessground) · SQLite
+
+## Running the backend
+
+Requires [uv](https://docs.astral.sh/uv/).
+
+```bash
+cd backend
+uv sync
+uv run uvicorn chess_tutor.main:create_app --factory --reload   # http://127.0.0.1:8000/health
+uv run pytest                                                   # tests + coverage (fails under 85%)
+uv run ruff check && uv run black --check . && uv run mypy src tests
+```
