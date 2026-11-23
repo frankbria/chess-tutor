@@ -24,6 +24,9 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   const [dialogDismissed, setDialogDismissed] = useState(false);
   const [confirmingResign, setConfirmingResign] = useState(false);
   const [syncToken, setSyncToken] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [connectionLost, setConnectionLost] = useState(false);
   const plyCount = useRef(0);
 
   // The server is the source of truth; ignore anything older than what is already shown.
@@ -43,16 +46,24 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   }, [api, gameId, accept]);
 
   useEffect(() => {
-    api.getGame(gameId).then(accept, (error: unknown) => setMessage(errorMessage(error)));
+    api.getGame(gameId).then(accept, (error: unknown) => setLoadError(errorMessage(error)));
     return api.subscribe(gameId, {
-      onSnapshot: () => void resync(),
-      onOpponentMove: () => void resync(),
+      onSnapshot: () => {
+        setConnectionLost(false);
+        void resync();
+      },
+      onOpponentMove: () => {
+        setConnectionLost(false);
+        void resync();
+      },
       onGameOver: ({ reason }) => {
+        setConnectionLost(false);
         setGameOverReason(reason);
         void resync();
       },
+      onConnectionLost: () => setConnectionLost(true),
     });
-  }, [api, gameId, accept, resync]);
+  }, [api, gameId, accept, resync, loadAttempt]);
 
   const submitMove = async (uci: string) => {
     setMessage(null);
@@ -76,6 +87,22 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
     }
   };
 
+  if (!game && loadError) {
+    return (
+      <div role="alert" className="flex flex-col items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-destructive">
+        <p>{loadError}</p>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setLoadError(null);
+            setLoadAttempt((attempt) => attempt + 1);
+          }}
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
   if (!game) return <p role="status">Loading game…</p>;
 
   const myTurn = game.status === "active" && game.side_to_move === game.player_color && !thinking;
@@ -113,6 +140,7 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
             "Your move"
           ) : null}
         </p>
+        {connectionLost && <p role="status" className="text-sm text-muted-foreground">Connection lost, reconnecting…</p>}
         {message && (
           <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
             {message}

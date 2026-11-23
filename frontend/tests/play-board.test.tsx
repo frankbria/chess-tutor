@@ -1,11 +1,11 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { GameOverDialog } from "@/components/play/game-over-dialog";
 import { MoveList } from "@/components/play/move-list";
 import { PlayBoard } from "@/components/play/play-board";
-import { ApiError, type GameApi, type GameState, type GameStreamHandlers } from "@/lib/game-api";
+import { ApiError, parseStreamEvent, type GameApi, type GameState, type GameStreamHandlers } from "@/lib/game-api";
 import { destinationsFrom, describeResult, isPromotion, lastMoveSquares } from "@/lib/chess-board";
 
 // chessground needs real layout; this stand-in exposes what the board would be given.
@@ -150,6 +150,38 @@ describe("PlayBoard", () => {
     render(<PlayBoard gameId={1} api={api} />);
     await userEvent.click(await screen.findByText("drop e2e4"));
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not reach the game server");
+  });
+});
+
+describe("PlayBoard connection handling", () => {
+  it("shows the load error with Retry instead of loading forever", async () => {
+    let attempts = 0;
+    const { api } = fakeApi(game(), {
+      getGame: async () => {
+        if (attempts++ === 0) throw new ApiError(404, "game not found");
+        return game();
+      },
+    });
+    render(<PlayBoard gameId={1} api={api} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("game not found");
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByTestId("board")).toBeInTheDocument();
+  });
+
+  it("shows a reconnecting status until the next event", async () => {
+    const { api, stream } = fakeApi(game());
+    render(<PlayBoard gameId={1} api={api} />);
+    await screen.findByTestId("board");
+    act(() => stream()?.onConnectionLost());
+    expect(screen.getByText("Connection lost, reconnecting…")).toBeInTheDocument();
+    act(() => stream()?.onSnapshot({ fen: START_FEN, status: "active" }));
+    expect(screen.queryByText("Connection lost, reconnecting…")).not.toBeInTheDocument();
+  });
+
+  it("ignores malformed stream events", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(parseStreamEvent("{not json")).toBeNull();
+    expect(parseStreamEvent<{ a: number }>('{"a":1}')).toEqual({ a: 1 });
   });
 });
 
