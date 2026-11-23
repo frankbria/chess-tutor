@@ -100,3 +100,19 @@ class Move(Base):
     classification: Mapped[str | None] = mapped_column(default=None)
     eval_before: Mapped[float | None] = mapped_column(default=None)  # mover's win probability
     eval_after: Mapped[float | None] = mapped_column(default=None)
+
+
+class RatingHistory(Base):
+    __tablename__ = "rating_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id"))
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), unique=True)
+    rating_before: Mapped[float]
+    rating_after: Mapped[float]
+    deviation_before: Mapped[float]
+    deviation_after: Mapped[float]
+    weight: Mapped[float]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )

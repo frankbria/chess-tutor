@@ -45,6 +45,8 @@ class Thresholds(BaseModel):
     concept_state: ConceptStateThresholds = ConceptStateThresholds()
     rating_weights: RatingWeights = RatingWeights()
     tutor_stretch_offset: int = 100
+    opponent_rating_deviation: float = 50.0  # Maia's strength is pinned, so its RD stays low
+    rating_system_constant: float = 0.5  # Glicko-2 tau
 
 
 class Settings(BaseSettings):
