@@ -27,7 +27,8 @@ class Answer(BaseModel):
 async def settings(tmp_path: Path) -> Settings:
     settings = Settings(_env_file=None, llm_provider="anthropic", database_path=tmp_path / "t.db")
     try:
-        await anthropic.AsyncAnthropic().models.retrieve(settings.cheap_model)
+        api_key = settings.llm_api_key.get_secret_value() if settings.llm_api_key else None
+        await anthropic.AsyncAnthropic(api_key=api_key).models.retrieve(settings.cheap_model)
     except (anthropic.AuthenticationError, TypeError):
         pytest.skip("no Anthropic credentials resolve (set ANTHROPIC_API_KEY or `ant auth login`)")
     return settings
@@ -90,3 +91,20 @@ async def test_usage_cost_is_recorded_on_a_game(settings: Settings) -> None:
 
         assert reply.usage.cost > 0
         assert game.llm_cost == pytest.approx(reply.usage.cost)
+
+
+async def test_stopping_a_stream_early_still_reports_usage_once(settings: Settings) -> None:
+    usages: list[Usage] = []
+    stream = AnthropicLanguageModel(settings).stream_text(
+        tier=ModelTier.COACHING,
+        system="Write a long story.",
+        messages=[ChatMessage("user", "Begin.")],
+        on_usage=usages.append,
+    )
+
+    async for _ in stream:
+        break
+    await stream.aclose()
+
+    assert len(usages) == 1
+    assert usages[0].input_tokens + usages[0].cache_write_tokens + usages[0].cache_read_tokens > 0

@@ -58,4 +58,4 @@ class ScriptedLanguageModel:
             on_usage(self._usage_for(tier))
 
     def _usage_for(self, tier: ModelTier) -> Usage:
-        return self._usage or Usage(tier=tier)
+        return self._usage or Usage(model=tier.value)

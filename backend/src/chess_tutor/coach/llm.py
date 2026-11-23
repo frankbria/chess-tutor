@@ -1,4 +1,5 @@
-from collections.abc import AsyncIterator, Callable, Sequence
+import logging
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Protocol
@@ -12,7 +13,9 @@ from sqlalchemy.orm import Session
 from chess_tutor.models import Game
 from chess_tutor.settings import Settings
 
+logger = logging.getLogger(__name__)
 TOKENS_PER_MILLION = 1_000_000
+MISSING_CREDENTIALS_MARKER = "Could not resolve authentication method"
 # Coaching replies are short; the headroom is for adaptive thinking, which counts against it.
 COACHING_MAX_TOKENS = 4096
 CHEAP_MAX_TOKENS = 2048
@@ -26,7 +29,14 @@ class ModelTier(StrEnum):
 
 
 class LanguageModelError(Exception):
-    """The model refused, ran out of output tokens, or could not be reached."""
+    """The model refused, ran out of output tokens, or could not be reached.
+
+    `usage` is set when tokens were billed before the failure, so the caller can still record it.
+    """
+
+    def __init__(self, message: str, usage: "Usage | None" = None) -> None:
+        super().__init__(message)
+        self.usage = usage
 
 
 @dataclass(frozen=True)
@@ -36,7 +46,7 @@ class ChatMessage:
 
 
 @dataclass(frozen=True)
-class TierPrices:
+class ModelPrices:
     """US dollars per million tokens."""
 
     input: float
@@ -45,17 +55,17 @@ class TierPrices:
     cache_write_multiplier: float = 1.25  # 5-minute cache writes cost 1.25x the input rate
 
 
-# shortcut: Haiku 5.5 doubles+ its rates above 100K-token prompts and prices follow the default
-# models; coaching prompts stay far below that, so revisit if tiers are pointed at other models.
-PRICES: dict[ModelTier, TierPrices] = {
-    ModelTier.COACHING: TierPrices(input=2.0, cache_read=0.10, output=10.0),
-    ModelTier.CHEAP: TierPrices(input=0.10, cache_read=0.01, output=0.50),
+# shortcut: Haiku 5.5 charges more than double above 100K-token prompts; coaching prompts stay far
+# below that, so revisit if prompts grow.
+PRICES: dict[str, ModelPrices] = {
+    "claude-sonnet-5-5": ModelPrices(input=2.0, cache_read=0.10, output=10.0),
+    "claude-haiku-5-5": ModelPrices(input=0.10, cache_read=0.01, output=0.50),
 }
 
 
 @dataclass(frozen=True)
 class Usage:
-    tier: ModelTier
+    model: str
     input_tokens: int = 0  # uncached input only
     cache_write_tokens: int = 0
     cache_read_tokens: int = 0
@@ -63,7 +73,11 @@ class Usage:
 
     @property
     def cost(self) -> float:
-        prices = PRICES[self.tier]
+        """US dollars; 0 (with a warning) for a model missing from PRICES."""
+        prices = PRICES.get(self.model)
+        if prices is None:
+            logger.warning("no price known for model %r; recording its cost as 0", self.model)
+            return 0.0
         return (
             self.input_tokens * prices.input
             + self.cache_write_tokens * prices.input * prices.cache_write_multiplier
@@ -120,21 +134,23 @@ class AnthropicLanguageModel:
         messages: Sequence[ChatMessage],
         schema: type[ParsedModel],
     ) -> StructuredReply[ParsedModel]:
+        model = self._models[tier]
         try:
             response = await self._client.messages.parse(
-                model=self._models[tier],
+                model=model,
                 max_tokens=_max_tokens(tier),
                 system=_cached_system(system),
                 messages=_to_params(messages),
                 output_format=schema,
                 output_config={"effort": EFFORT},
             )
-        except anthropic.APIError as error:
-            raise LanguageModelError(str(error)) from error
-        _raise_unless_complete(response.stop_reason)
+        except (anthropic.APIError, TypeError) as error:
+            raise _transport_error(error) from error
+        usage = usage_from(model, response.usage)
+        raise_unless_complete(response.stop_reason, usage)
         if response.parsed_output is None:
-            raise LanguageModelError("the model returned no structured output")
-        return StructuredReply(response.parsed_output, _usage(tier, response.usage))
+            raise LanguageModelError("the model returned no structured output", usage)
+        return StructuredReply(response.parsed_output, usage)
 
     async def stream_text(
         self,
@@ -143,23 +159,37 @@ class AnthropicLanguageModel:
         system: str,
         messages: Sequence[ChatMessage],
         on_usage: Callable[[Usage], None] | None = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncGenerator[str]:  # a generator so callers can aclose() it
+        """Yield text deltas; `on_usage` fires exactly once, however the stream ends.
+
+        The SDK folds message_start (input tokens) and message_delta (output tokens) into a live
+        snapshot, so an early stop or a cancellation reports the usage received so far.
+        """
+        model = self._models[tier]
+        usage: Usage | None = None
         try:
             async with self._client.messages.stream(
-                model=self._models[tier],
+                model=model,
                 max_tokens=_max_tokens(tier),
                 system=_cached_system(system),
                 messages=_to_params(messages),
                 output_config={"effort": EFFORT},
             ) as stream:
-                async for delta in stream.text_stream:
-                    yield delta
-                final = await stream.get_final_message()
-        except anthropic.APIError as error:
-            raise LanguageModelError(str(error)) from error
-        _raise_unless_complete(final.stop_reason)
-        if on_usage is not None:
-            on_usage(_usage(tier, final.usage))
+                try:
+                    async for delta in stream.text_stream:
+                        yield delta
+                    final = await stream.get_final_message()
+                finally:
+                    try:
+                        usage = usage_from(model, stream.current_message_snapshot.usage)
+                    except AssertionError:  # no message_start arrived, so nothing was billed
+                        usage = None
+            raise_unless_complete(final.stop_reason, usage)
+        except (anthropic.APIError, TypeError) as error:
+            raise _transport_error(error, usage) from error
+        finally:
+            if on_usage is not None and usage is not None:
+                on_usage(usage)
 
 
 def create_language_model(settings: Settings) -> LanguageModel | None:
@@ -195,18 +225,24 @@ def _to_params(messages: Sequence[ChatMessage]) -> list[MessageParam]:
     ]
 
 
-def _raise_unless_complete(stop_reason: str | None) -> None:
+def raise_unless_complete(stop_reason: str | None, usage: Usage | None) -> None:
     if stop_reason == "refusal":
-        raise LanguageModelError("the model refused the request")
+        raise LanguageModelError("the model refused the request", usage)
     if stop_reason == "max_tokens":
-        raise LanguageModelError("the reply was cut off at the output token limit")
+        raise LanguageModelError("the reply was cut off at the output token limit", usage)
 
 
-def _usage(tier: ModelTier, usage: anthropic.types.Usage) -> Usage:
+def usage_from(model: str, usage: anthropic.types.Usage) -> Usage:
     return Usage(
-        tier=tier,
+        model=model,
         input_tokens=usage.input_tokens,
         cache_write_tokens=usage.cache_creation_input_tokens or 0,
         cache_read_tokens=usage.cache_read_input_tokens or 0,
         output_tokens=usage.output_tokens,
     )
+
+
+def _transport_error(error: Exception, usage: Usage | None = None) -> LanguageModelError:
+    if isinstance(error, TypeError) and MISSING_CREDENTIALS_MARKER not in str(error):
+        raise error  # a genuine bug, not a credential problem
+    return LanguageModelError(str(error), usage)
