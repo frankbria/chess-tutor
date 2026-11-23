@@ -58,6 +58,9 @@ def with_facts(*facts: Fact, **overrides: object) -> CoachContext:
     )
 
 
+NO_BEST: dict[str, object] = {"best_move_san": None, "best_line": []}
+
+
 def kinds(reply: CoachReply, context: CoachContext) -> set[GroundingErrorKind]:
     return {error.kind for error in validate_reply(reply, context)}
 
@@ -102,7 +105,7 @@ def test_hallucinated_text_is_rejected(text: str, expected: GroundingErrorKind) 
 
 def test_an_uncited_claim_is_rejected() -> None:
     assert GroundingErrorKind.UNVERIFIED_MOVE in kinds(
-        reply("Nc7+ forks two pieces."), context_for()
+        reply("Nc7+ forks two pieces."), context_for(**NO_BEST)
     )
     assert GroundingErrorKind.UNCITED_SQUARE in kinds(reply("Watch the rook on a8."), context_for())
 
@@ -124,9 +127,13 @@ def test_a_san_whose_line_is_illegal_is_rejected() -> None:
     broken = Fact(
         id="broken", type=FactType.FORK, side=Side.WHITE, summary="x", san_lines=[["Nc7+", "Nc7"]]
     )
-    context = with_facts(broken)
+    context = with_facts(broken, **NO_BEST)
 
     assert GroundingErrorKind.UNVERIFIED_MOVE in kinds(reply("Nc7+ is strong.", "broken"), context)
+
+
+def test_after_lock_in_the_best_move_and_line_are_citable() -> None:
+    assert validate_reply(reply("Nc7+, Kd7 and Nxa8 wins the rook."), context_for()) == []
 
 
 def test_the_best_move_is_rejected_before_lock_in_even_in_a_visible_fact() -> None:
