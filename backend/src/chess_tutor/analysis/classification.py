@@ -70,7 +70,7 @@ def game_accuracy(win_probability_losses: list[float]) -> float:
     return (arithmetic + harmonic) / 2
 
 
-def _mover_win_probability(line: AnalysedLine, mover: chess.Color) -> float:
+def win_probability_for(line: AnalysedLine, mover: chess.Color) -> float:
     return win_probability(line.white_score if mover == chess.WHITE else -line.white_score)
 
 
@@ -108,12 +108,12 @@ def assess_move(
     move is not among the analysed lines."""
     thresholds = thresholds or ClassificationThresholds()
     mover = board_before.turn
-    best_probability = _mover_win_probability(before[0], mover)
+    best_probability = win_probability_for(before[0], mover)
     played_line = next((line for line in before if line.pv and line.pv[0] == move), None)
     if played_line is not None:
-        played_probability = _mover_win_probability(played_line, mover)
+        played_probability = win_probability_for(played_line, mover)
     elif after is not None:
-        played_probability = _mover_win_probability(after, mover)
+        played_probability = win_probability_for(after, mover)
     else:
         raise ValueError("the move is not among the analysed lines; supply the analysis after it")
     # Measured against the best line, so an engine that scores a non-best line higher is no gain.
@@ -149,7 +149,7 @@ def _classify(
         return MoveClassification.BRILLIANT
     if is_best_move and len(before) >= 2:
         mover = board_before.turn
-        gap = _mover_win_probability(before[0], mover) - _mover_win_probability(before[1], mover)
+        gap = win_probability_for(before[0], mover) - win_probability_for(before[1], mover)
         if gap >= thresholds.great_alternative_gap:
             return MoveClassification.GREAT
     if is_best_move or loss < thresholds.best_loss:
@@ -180,19 +180,21 @@ async def assess_played_move(
     if not any(line.pv and line.pv[0] == move for line in before):
         board_after = board_before.copy(stack=False)
         board_after.push(move)
-        after = await _analyse_after(pool, board_after, budget)
+        after = (await analyse_position(pool, board_after, budget))[0]
     return assess_move(before, board_before, move, thresholds, after)
 
 
-async def _analyse_after(pool: StockfishPool, board: chess.Board, budget: Budget) -> AnalysedLine:
+async def analyse_position(
+    pool: StockfishPool, board: chess.Board, budget: Budget, multipv: int = 1
+) -> list[AnalysedLine]:
     # The engine reports nothing for a finished game, so score it directly.
     if board.is_game_over():
-        winner = board.outcome()
-        assert winner is not None
+        outcome = board.outcome()
+        assert outcome is not None
         white_score: chess.engine.Score = chess.engine.Cp(0)
-        if winner.winner is not None:
+        if outcome.winner is not None:
             white_score = (
-                chess.engine.MateGiven if winner.winner == chess.WHITE else -chess.engine.MateGiven
+                chess.engine.MateGiven if outcome.winner == chess.WHITE else -chess.engine.MateGiven
             )
-        return AnalysedLine(white_score=white_score, side_to_move_score=white_score, pv=[])
-    return (await pool.analyse(board, budget))[0]
+        return [AnalysedLine(white_score=white_score, side_to_move_score=white_score, pv=[])]
+    return await pool.analyse(board, budget, multipv=multipv)
