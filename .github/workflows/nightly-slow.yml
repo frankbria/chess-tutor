@@ -1,0 +1,43 @@
+name: Nightly slow tests
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  slow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Install Stockfish
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y stockfish
+          echo "STOCKFISH_PATH=$(command -v stockfish || echo /usr/games/stockfish)" >> "$GITHUB_ENV"
+      - name: Cache Maia-3 install and weights
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.local/share/uv/tools/maia3
+            ~/.local/bin/maia3-*
+            ~/.cache/huggingface
+          key: maia3-${{ runner.os }}-${{ hashFiles('scripts/install_maia3.sh') }}
+      - name: Install Maia-3
+        working-directory: .
+        run: scripts/install_maia3.sh
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: uv sync --locked
+      - run: uv run pytest -m slow --no-cov

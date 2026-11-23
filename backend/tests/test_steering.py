@@ -118,6 +118,7 @@ async def test_a_steered_move_hangs_a_player_piece() -> None:
     assert predictor.requests[0] == (1500, 4)
 
 
+@pytest.mark.slow
 async def test_steered_choices_follow_maias_probabilities() -> None:
     board = chess.Board(HANG_FEN)
     likely, unlikely = HANGING_MOVE, OWN_GIFT_MOVE  # the second creates the player's fork move
