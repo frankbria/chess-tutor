@@ -276,7 +276,7 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
         (name, square) for square, name in _SQUARE_THEN_PIECE.findall(bare_text)
     ]
     for name, square in claims:
-        types_there = cited_types.get(square) or verified.pieces.get(square, set())
+        types_there = cited_types.get(square, set()) | verified.pieces.get(square, set())
         if name.lower() not in types_there:
             found = f"a {' or '.join(sorted(types_there))}" if types_there else "no piece"
             errors.append(

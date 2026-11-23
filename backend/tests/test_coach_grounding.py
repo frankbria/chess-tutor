@@ -537,3 +537,13 @@ def test_level_two_skips_the_tactical_template_for_allows() -> None:
 
     assert "Kd7" not in template.text
     assert "e8" in template.text
+
+
+def test_a_verified_capture_on_a_cited_square_makes_the_new_occupant_valid() -> None:
+    text = "After Nc7+, Kd7 and Nxa8, the knight on a8 has won the rook."
+
+    assert validate_reply(reply(text, FORK), context_for()) == []
+    assert validate_reply(reply("The rook on a8 is attacked.", FORK), context_for()) == []
+    assert GroundingErrorKind.PIECE_MISMATCH in kinds(
+        reply(text.replace("knight on a8", "bishop on a8"), FORK), context_for()
+    )
