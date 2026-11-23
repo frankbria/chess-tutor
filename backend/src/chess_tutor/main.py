@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from chess_tutor.api.events import GameEvents
 from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
+from chess_tutor.api.settings import router as settings_router
 from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
 from chess_tutor.engines.human_moves import HumanMovePredictor
@@ -75,6 +76,7 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
         engine = create_database_engine(settings)
         seed_default_player(engine)
         app.state.engine = engine
+        app.state.settings = settings
         app.state.game_events = GameEvents()
         game_opponent = opponent
         if game_opponent is None and settings.maia_enabled:
@@ -127,10 +129,11 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.frontend_origins,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["Content-Type"],
     )
     app.include_router(games_router)
+    app.include_router(settings_router)
     register_game_errors(app)
 
     @app.get("/health")
