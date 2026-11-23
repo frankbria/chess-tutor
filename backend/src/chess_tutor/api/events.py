@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from chess_tutor.games.clock import ClockState
 from chess_tutor.models import GameStatus, PlayerColor
 
 
@@ -13,6 +14,7 @@ class OpponentMoveEvent(BaseModel):
     uci: str
     san: str
     fen: str
+    clock: ClockState | None
 
 
 class SnapshotEvent(BaseModel):
@@ -21,6 +23,7 @@ class SnapshotEvent(BaseModel):
     side_to_move: PlayerColor
     status: GameStatus
     last_move: str | None
+    clock: ClockState | None
 
 
 class GameOverEvent(BaseModel):
