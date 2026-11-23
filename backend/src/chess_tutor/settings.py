@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     maia_policy_timeout_seconds: float = Field(default=10, gt=0)
     maia_model: Literal["3m", "5m", "23m", "79m"] = "5m"
     maia_device: str = "cpu"
+    maia2_python: str = ""  # empty: the venv made by scripts/install_maia2.sh
+    opponent_engine: Literal["maia3", "maia2", "stockfish"] = "maia3"
+    opponent_stockfish_above_elo: int = 2000  # above this Elo the Stockfish-limited engine plays
+    opponent_stockfish_move_seconds: float = Field(default=0.1, gt=0)
     opponent_min_think_seconds: float = Field(default=0.6, ge=0)
     opponent_max_think_seconds: float = Field(default=4.0, ge=0)
     maia_enabled: bool = True  # tests that never play a game switch the engine off

@@ -55,6 +55,16 @@ jobs:
       - name: Install Maia-3
         working-directory: .
         run: scripts/install_maia3.sh
+      - name: Cache Maia-2 install and weights
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.local/share/chess-tutor/maia2-venv
+            ~/.cache/maia2
+          key: maia2-${{ runner.os }}-${{ hashFiles('scripts/install_maia2.sh') }}
+      - name: Install Maia-2
+        working-directory: .
+        run: scripts/install_maia2.sh
       - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: uv sync --locked
       - run: uv run ruff check
