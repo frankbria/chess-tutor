@@ -19,6 +19,7 @@ class ClassificationThresholds(BaseModel):
 class PhaseThresholds(BaseModel):
     opening_max_move: int = 12
     endgame_max_non_pawn_material: int = 13
+    queens_off_max_non_pawn_material: int = 26  # both sides combined; queen=9, rook=5, minor=3
 
 
 class ConceptStateThresholds(BaseModel):
