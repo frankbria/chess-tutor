@@ -1,10 +1,14 @@
+import os
+import subprocess
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from chess_tutor.database import create_database_engine, run_migrations
+from chess_tutor.database import BACKEND_ROOT, create_database_engine, run_migrations
 from chess_tutor.main import create_app
 from chess_tutor.models import Player, PlayerSetting
 from chess_tutor.settings import Settings
@@ -60,3 +64,31 @@ def test_foreign_keys_are_enforced(settings: Settings) -> None:
         session.add(PlayerSetting(player_id=999, key="theme", value="dark"))
         with pytest.raises(IntegrityError):
             session.commit()
+
+
+def test_database_path_with_url_special_characters(tmp_path: Path) -> None:
+    settings = Settings(
+        _env_file=None, llm_provider="none", database_path=tmp_path / "odd?name#1.db"
+    )
+
+    run_migrations(settings)
+
+    assert (tmp_path / "odd?name#1.db").exists()
+
+
+def test_alembic_cli_migrates_without_llm_key(tmp_path: Path) -> None:
+    database_path = tmp_path / "nested" / "cli.db"
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("CHESS_TUTOR_")
+    }
+    environment["CHESS_TUTOR_DATABASE_PATH"] = str(database_path)
+
+    subprocess.run(
+        ["uv", "run", "alembic", "upgrade", "head"],
+        cwd=BACKEND_ROOT,
+        env=environment,
+        check=True,
+        capture_output=True,
+    )
+
+    assert "player" in inspect(create_engine(f"sqlite:///{database_path}")).get_table_names()

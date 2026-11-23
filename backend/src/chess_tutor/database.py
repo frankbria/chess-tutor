@@ -3,7 +3,7 @@ from sqlite3 import Connection as SQLiteConnection
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine, create_engine, event, select
+from sqlalchemy import URL, Engine, create_engine, event, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import ConnectionPoolEntry
 
@@ -13,8 +13,9 @@ from chess_tutor.settings import Settings
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
-def database_url(settings: Settings) -> str:
-    return f"sqlite:///{settings.database_path}"
+def database_url(settings: Settings) -> URL:
+    # URL.create escapes characters such as ? and # that string interpolation would misparse.
+    return URL.create("sqlite", database=str(settings.database_path))
 
 
 def create_database_engine(settings: Settings) -> Engine:
@@ -32,7 +33,8 @@ def run_migrations(settings: Settings) -> None:
     settings.database_path.parent.mkdir(parents=True, exist_ok=True)
     config = Config(BACKEND_ROOT / "alembic.ini")
     # configparser treats % as interpolation, so a path containing one must be escaped.
-    config.set_main_option("sqlalchemy.url", database_url(settings).replace("%", "%%"))
+    url = database_url(settings).render_as_string(hide_password=False)
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     command.upgrade(config, "head")
 
 
