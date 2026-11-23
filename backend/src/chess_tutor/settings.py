@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     maia_policy_timeout_seconds: float = Field(default=10, gt=0)
     maia_model: Literal["3m", "5m", "23m", "79m"] = "5m"
     maia_device: str = "cpu"
+    opponent_min_think_seconds: float = Field(default=0.6, ge=0)
+    opponent_max_think_seconds: float = Field(default=4.0, ge=0)
     maia_enabled: bool = True  # tests that never play a game switch the engine off
 
     llm_provider: Literal["anthropic", "none"] = "anthropic"
@@ -83,4 +85,10 @@ class Settings(BaseSettings):
                 "CHESS_TUTOR_LLM_API_KEY is required (set it in .env or the environment, "
                 "or set CHESS_TUTOR_LLM_PROVIDER=none to run without a coach)"
             )
+        return self
+
+    @model_validator(mode="after")
+    def think_time_bounds_are_ordered(self) -> Self:
+        if self.opponent_min_think_seconds > self.opponent_max_think_seconds:
+            raise ValueError("opponent_min_think_seconds exceeds opponent_max_think_seconds")
         return self

@@ -9,6 +9,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.engines.opponent import OpponentEngine
+from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.models import (
     Game,
     GameMode,
@@ -71,9 +72,12 @@ def chess_color(color: PlayerColor) -> chess.Color:
 
 
 class GameService:
-    def __init__(self, engine: Engine, opponent: OpponentEngine) -> None:
+    def __init__(
+        self, engine: Engine, opponent: OpponentEngine, pacing: OpponentPacing | None = None
+    ) -> None:
         self._engine = engine
         self._opponent = opponent
+        self._pacing = pacing
         # Serialises moves so a double-submitted move can't race past the turn check.
         self._move_lock = asyncio.Lock()
 
@@ -127,6 +131,8 @@ class GameService:
             board = self._board(session, game_id)
             if game.status is not GameStatus.ACTIVE or board.turn == chess_color(game.player_color):
                 return game
+            if self._pacing is not None:
+                await self._pacing.pause(board, game.opponent_elo)
             try:
                 move = await self._opponent.choose_move(board, game.opponent_elo)
             # The engine is an external process: any failure there means no reply.

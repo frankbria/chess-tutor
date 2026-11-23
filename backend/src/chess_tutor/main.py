@@ -8,7 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
+from chess_tutor.engines.human_moves import HumanMovePredictor
 from chess_tutor.engines.opponent import Maia3Opponent
+from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.service import GameService
 from chess_tutor.models import Player
 from chess_tutor.settings import Settings
@@ -37,11 +39,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             engine.dispose()
             return
         opponent = Maia3Opponent.from_settings(settings)
-        await opponent.start()
-        app.state.game_service = GameService(engine, opponent)
+        predictor = HumanMovePredictor.from_settings(settings)
+        try:
+            await opponent.start()
+            await predictor.start()
+        except BaseException:
+            await opponent.close()
+            await predictor.close()
+            engine.dispose()
+            raise
+        pacing = OpponentPacing(settings, predictor)
+        app.state.game_service = GameService(engine, opponent, pacing)
         try:
             yield
         finally:
+            await predictor.close()
             await opponent.close()
             engine.dispose()
 

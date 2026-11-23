@@ -15,6 +15,8 @@ def settings(tmp_path: Path) -> Settings:
         llm_provider="none",
         database_path=tmp_path / "db" / "t.db",
         maia_enabled=False,
+        opponent_min_think_seconds=0,
+        opponent_max_think_seconds=0,
     )
 
 
