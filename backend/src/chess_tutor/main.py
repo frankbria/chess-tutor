@@ -17,6 +17,8 @@ from chess_tutor.database import create_database_engine, run_migrations, seed_de
 from chess_tutor.engines.human_moves import HumanMovePredictor
 from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.routing import build_opponent
+from chess_tutor.engines.steering import SteeringOpponent, focus_concepts_of_first_player
+from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.service import GameService
 from chess_tutor.models import ConceptState, ConceptStatus, Game, Player, RatingHistory
@@ -82,14 +84,31 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
             engine.dispose()
             return
         predictor = HumanMovePredictor.from_settings(settings) if settings.maia_enabled else None
+        steering_pool: StockfishPool | None = None
+        if predictor is not None and settings.opponent_steering_enabled:
+            steering_pool = StockfishPool(settings.stockfish_path, settings.stockfish_pool_size)
+            game_opponent = SteeringOpponent(
+                game_opponent,
+                predictor,
+                steering_pool,
+                lambda: focus_concepts_of_first_player(engine),
+                settings.opponent_steering_rate,
+                settings.opponent_steering_max_eval_loss_centipawns,
+                max_steered_elo=settings.opponent_stockfish_above_elo,
+            )
+        app.state.opponent = game_opponent
         try:
             await game_opponent.start()
             if predictor is not None:
                 await predictor.start()
+            if steering_pool is not None:
+                await steering_pool.start()
         except Exception:
             await game_opponent.close()
             if predictor is not None:
                 await predictor.close()
+            if steering_pool is not None:
+                await steering_pool.close()
             engine.dispose()
             raise
         pacing = None if predictor is None else OpponentPacing(settings, predictor)
@@ -97,6 +116,8 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
         try:
             yield
         finally:
+            if steering_pool is not None:
+                await steering_pool.close()
             if predictor is not None:
                 await predictor.close()
             await game_opponent.close()
