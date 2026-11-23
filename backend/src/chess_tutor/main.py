@@ -12,11 +12,14 @@ from sqlalchemy.orm import Session
 from chess_tutor.api.events import GameEvents
 from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
+from chess_tutor.coach.llm import LanguageModel, create_language_model
+from chess_tutor.coach.passive import PassiveCoach
 from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
 from chess_tutor.engines.human_moves import HumanMovePredictor
 from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.routing import build_opponent
+from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.service import GameService
 from chess_tutor.models import ConceptState, ConceptStatus, Game, Player, RatingHistory
@@ -63,7 +66,11 @@ CONCEPT_STATE_ORDER = (
 )
 
 
-def create_app(settings: Settings | None = None, opponent: OpponentEngine | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    opponent: OpponentEngine | None = None,
+    language_model: LanguageModel | None = None,
+) -> FastAPI:
     settings = settings or Settings()
 
     @asynccontextmanager
@@ -94,9 +101,21 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
             raise
         pacing = None if predictor is None else OpponentPacing(settings, predictor)
         app.state.game_service = GameService(engine, game_opponent, pacing, settings.thresholds)
+        pool = StockfishPool(settings.stockfish_path, settings.stockfish_pool_size)
+        passive_coach = PassiveCoach(
+            engine,
+            pool,
+            language_model or create_language_model(settings),
+            app.state.game_events,
+            settings,
+        )
+        app.state.passive_coach = passive_coach
         try:
+            await pool.start()
             yield
         finally:
+            await passive_coach.close()
+            await pool.close()
             if predictor is not None:
                 await predictor.close()
             await game_opponent.close()

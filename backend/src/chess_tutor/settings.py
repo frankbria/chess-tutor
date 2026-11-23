@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     coaching_model: str = "claude-sonnet-5-5"
     cheap_model: str = "claude-haiku-5-5"
 
+    coach_comment_every_n_moves: int = Field(
+        default=1, ge=1
+    )  # passive mode; 1 comments on every notable move
+
     thresholds: Thresholds = Thresholds()
 
     @model_validator(mode="after")
