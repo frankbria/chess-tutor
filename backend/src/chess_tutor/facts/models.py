@@ -11,6 +11,10 @@ class Side(StrEnum):
 class FactType(StrEnum):
     MATERIAL_BALANCE = "material_balance"
     HANGING_PIECE = "hanging_piece"
+    FORK = "fork"
+    PIN = "pin"
+    SKEWER = "skewer"
+    DISCOVERED_ATTACK = "discovered_attack"
 
 
 class PieceRef(BaseModel):
