@@ -87,3 +87,11 @@ def test_stockfish_selection_is_not_routed() -> None:
 def test_environment_selects_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CHESS_TUTOR_OPPONENT_ENGINE", "maia2")
     assert Settings(_env_file=None, llm_provider="none").opponent_engine == "maia2"
+
+
+async def test_context_manager_starts_and_closes_both_engines() -> None:
+    primary, fallback = _TrackedOpponent(), _TrackedOpponent()
+    async with RoutingOpponent(primary, fallback, ceiling=2000):
+        assert primary.started and fallback.started
+        assert not (primary.closed or fallback.closed)
+    assert primary.closed and fallback.closed

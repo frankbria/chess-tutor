@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 
 import chess
+import chess.engine
 import pytest
 import pytest_asyncio
 
@@ -30,19 +31,45 @@ async def test_returns_legal_move(opponent: StockfishLimitedOpponent, fen: str, 
     assert await opponent.choose_move(board, elo) in board.legal_moves
 
 
+async def _reported_elo_range() -> tuple[int, int]:
+    _, probe = await chess.engine.popen_uci(
+        Settings(_env_file=None, llm_provider="none").stockfish_path
+    )
+    try:
+        option = probe.options["UCI_Elo"]
+        assert option.min is not None and option.max is not None
+        return option.min, option.max
+    finally:
+        await probe.quit()
+
+
 async def test_elo_range_comes_from_the_engine(opponent: StockfishLimitedOpponent) -> None:
-    assert (opponent.min_elo, opponent.max_elo) == (1320, 3190)
+    assert (opponent.min_elo, opponent.max_elo) == await _reported_elo_range()
 
 
-@pytest.mark.parametrize(("elo", "configured"), [(100, 1320), (9999, 3190), (2000, 2000)])
-async def test_elo_is_clamped_to_the_engine_range(
-    opponent: StockfishLimitedOpponent, elo: int, configured: int
-) -> None:
-    await opponent.choose_move(chess.Board(), elo)
+async def test_elo_is_clamped_to_the_engine_range(opponent: StockfishLimitedOpponent) -> None:
+    low, high = await _reported_elo_range()
     engine = opponent._engine
     assert engine is not None
-    assert engine.config["UCI_Elo"] == configured
+    for requested, expected in [(low - 500, low), (high + 500, high), (low + 100, low + 100)]:
+        await opponent.choose_move(chess.Board(), requested)
+        assert engine.config["UCI_Elo"] == expected
     assert engine.config["UCI_LimitStrength"] is True
+
+
+async def test_missing_binary_raises_opponent_error_naming_the_path() -> None:
+    with pytest.raises(OpponentError, match="/nonexistent/stockfish"):
+        await StockfishLimitedOpponent(path="/nonexistent/stockfish").start()
+
+
+async def test_non_uci_program_raises_opponent_error_and_leaves_no_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("chess_tutor.engines.stockfish_limited.STARTUP_TIMEOUT_SECONDS", 0.5)
+    engine = StockfishLimitedOpponent(path="/bin/cat")
+    with pytest.raises(OpponentError, match="/bin/cat"):
+        await engine.start()
+    assert engine._engine is None
 
 
 async def test_rejects_finished_game(opponent: StockfishLimitedOpponent) -> None:

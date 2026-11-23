@@ -1,3 +1,6 @@
+from types import TracebackType
+from typing import Self
+
 import chess
 
 from chess_tutor.engines.maia2 import Maia2Opponent
@@ -13,6 +16,18 @@ class RoutingOpponent:
         self._primary = primary
         self._fallback = fallback
         self._ceiling = ceiling
+
+    async def __aenter__(self) -> Self:
+        await self.start()
+        return self
+
+    async def __aexit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        await self.close()
 
     async def start(self) -> None:
         await self._primary.start()

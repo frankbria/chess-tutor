@@ -11,6 +11,8 @@ from chess_tutor.settings import Settings
 
 logger = logging.getLogger(__name__)
 
+STARTUP_TIMEOUT_SECONDS = 10
+
 
 class StockfishLimitedOpponent:
     """A dedicated Stockfish process playing at a reduced UCI_Elo (the strong end of the range)."""
@@ -40,7 +42,12 @@ class StockfishLimitedOpponent:
         await self.close()
 
     async def start(self) -> None:
-        _, engine = await chess.engine.popen_uci(self._path)
+        try:
+            _, engine = await asyncio.wait_for(
+                chess.engine.popen_uci(self._path), timeout=STARTUP_TIMEOUT_SECONDS
+            )
+        except (OSError, TimeoutError, chess.engine.EngineError) as error:
+            raise OpponentError(f"cannot start a UCI engine at {self._path}: {error!r}") from error
         option = engine.options.get("UCI_Elo")
         if option is None or option.min is None or option.max is None:
             await engine.quit()
