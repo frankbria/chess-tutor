@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
 from chess_tutor.settings import REPOSITORY_ROOT, Settings
 
@@ -12,15 +12,9 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def test_missing_api_key_names_the_environment_variable() -> None:
-    with pytest.raises(ValidationError, match="CHESS_TUTOR_LLM_API_KEY"):
-        Settings(_env_file=None)
-
-
-def test_no_llm_provider_does_not_require_a_key() -> None:
-    settings = Settings(_env_file=None, llm_provider="none")
-
-    assert settings.llm_api_key is None
+def test_api_key_is_optional_because_the_sdk_credential_chain_can_supply_it() -> None:
+    assert Settings(_env_file=None).llm_api_key is None
+    assert Settings(_env_file=None, llm_provider="none").llm_api_key is None
 
 
 def test_environment_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,12 +50,6 @@ def test_defaults_match_the_spec() -> None:
     assert settings.database_path == REPOSITORY_ROOT / "data" / "chess_tutor.db"
     assert settings.thresholds.rating_weights.regular == 1.0
     assert settings.thresholds.tutor_stretch_offset == 100
-
-
-@pytest.mark.parametrize("blank_key", ["", "   ", "replace-me"])
-def test_blank_or_placeholder_api_key_counts_as_missing(blank_key: str) -> None:
-    with pytest.raises(ValidationError, match="CHESS_TUTOR_LLM_API_KEY"):
-        Settings(_env_file=None, llm_api_key=SecretStr(blank_key))
 
 
 def test_stockfish_pool_size_defaults_to_two_and_rejects_zero() -> None:
