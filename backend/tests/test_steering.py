@@ -75,17 +75,17 @@ def steering(
     predictor: ScriptedPredictor | BrokenPredictor,
     centipawns: dict[chess.Move, int],
     focus: Callable[[], frozenset[Concept]] = fork_focus,
-    bias: float = 3.0,
+    rate: float = 1.0,
     max_eval_loss_centipawns: int = 30,
 ) -> tuple[SteeringOpponent, ScriptedOpponent]:
-    wrapped = ScriptedOpponent(*["g6"] * 300)
+    wrapped = ScriptedOpponent(*["g6"] * 600)
     return (
         SteeringOpponent(
             wrapped,
             predictor,
             ScriptedAnalyser(centipawns),
             focus,
-            bias,
+            rate,
             max_eval_loss_centipawns,
             random_source=random.Random(0),
         ),
@@ -97,24 +97,59 @@ async def picks(opponent: SteeringOpponent, count: int = 200) -> list[chess.Move
     return [await opponent.choose_move(chess.Board(FORK_FEN), 1500) for _ in range(count)]
 
 
-async def test_bias_prefers_the_motif_creating_candidate() -> None:
+async def test_a_steered_move_is_the_motif_creating_candidate() -> None:
     predictor = ScriptedPredictor((QUIET_MOVE, 0.5), (FORKING_MOVE, 0.3), (OTHER_QUIET_MOVE, 0.2))
-    evaluations = {QUIET_MOVE: 0, FORKING_MOVE: -10, OTHER_QUIET_MOVE: 0}
-    biased, _ = steering(predictor, evaluations, bias=4.0)
-    unbiased, _ = steering(predictor, evaluations, bias=1.0)
+    opponent, wrapped = steering(
+        predictor, {QUIET_MOVE: 0, FORKING_MOVE: -10, OTHER_QUIET_MOVE: 0}, rate=1.0
+    )
 
-    biased_share = (await picks(biased)).count(FORKING_MOVE) / 200
-    unbiased_share = (await picks(unbiased)).count(FORKING_MOVE) / 200
-
-    assert unbiased_share == pytest.approx(0.3, abs=0.1)
-    assert biased_share == pytest.approx(1.2 / 1.9, abs=0.1)  # 0.3 * 4 against 0.5 and 0.2
+    assert set(await picks(opponent, 20)) == {FORKING_MOVE}
+    assert wrapped.elos == []
     assert predictor.requests[0] == (1500, 4)
+
+
+async def test_steered_choices_follow_maias_probabilities() -> None:
+    board = chess.Board("rnbqkb1r/p1pppp1p/6p1/1p1N4/4n2P/8/PPPPPPPR/R1BQKBN1 w Qkq - 4 5")
+    likely, unlikely = chess.Move.from_uci("d5c3"), chess.Move.from_uci("g2g4")
+    predictor = ScriptedPredictor(
+        (likely, 0.6), (unlikely, 0.2), (chess.Move.from_uci("a2a3"), 0.2)
+    )
+    opponent, _ = steering(
+        predictor, {likely: 0, unlikely: 0, chess.Move.from_uci("a2a3"): 0}, rate=1.0
+    )
+
+    chosen = [await opponent.choose_move(board, 1500) for _ in range(400)]
+
+    assert set(chosen) == {likely, unlikely}
+    assert chosen.count(likely) / 400 == pytest.approx(0.75, abs=0.07)
+
+
+async def test_only_the_configured_share_of_moves_is_steered() -> None:
+    predictor = ScriptedPredictor((QUIET_MOVE, 0.5), (FORKING_MOVE, 0.3), (OTHER_QUIET_MOVE, 0.2))
+    opponent, wrapped = steering(
+        predictor, {QUIET_MOVE: 0, FORKING_MOVE: -10, OTHER_QUIET_MOVE: 0}, rate=0.25
+    )
+
+    steered = (await picks(opponent, 400)).count(FORKING_MOVE)
+
+    assert steered / 400 == pytest.approx(0.25, abs=0.07)
+    assert len(wrapped.elos) == 400 - steered  # every other move is the wrapped engine's own
+
+
+async def test_a_zero_rate_never_steers() -> None:
+    predictor = ScriptedPredictor((QUIET_MOVE, 0.5), (FORKING_MOVE, 0.5))
+    opponent, wrapped = steering(predictor, {QUIET_MOVE: 0, FORKING_MOVE: 0}, rate=0.0)
+
+    await picks(opponent, 20)
+
+    assert len(wrapped.elos) == 20
+    assert predictor.requests == []
 
 
 async def test_a_move_costing_more_than_the_cap_is_never_chosen() -> None:
     predictor = ScriptedPredictor((QUIET_MOVE, 0.5), (FORKING_MOVE, 0.3), (OTHER_QUIET_MOVE, 0.2))
     costly = {QUIET_MOVE: 0, FORKING_MOVE: -31, OTHER_QUIET_MOVE: -20}
-    opponent, wrapped = steering(predictor, costly, bias=100.0, max_eval_loss_centipawns=30)
+    opponent, wrapped = steering(predictor, costly, max_eval_loss_centipawns=30)
 
     chosen = await picks(opponent, 20)
 
@@ -125,7 +160,7 @@ async def test_a_move_costing_more_than_the_cap_is_never_chosen() -> None:
 async def test_a_move_at_the_cap_is_allowed() -> None:
     predictor = ScriptedPredictor((QUIET_MOVE, 0.5), (FORKING_MOVE, 0.3))
     opponent, _ = steering(
-        predictor, {QUIET_MOVE: 0, FORKING_MOVE: -30}, bias=100.0, max_eval_loss_centipawns=30
+        predictor, {QUIET_MOVE: 0, FORKING_MOVE: -30}, max_eval_loss_centipawns=30
     )
 
     assert (await picks(opponent, 20)).count(FORKING_MOVE) > 10
@@ -133,7 +168,7 @@ async def test_a_move_at_the_cap_is_allowed() -> None:
 
 async def test_candidates_below_the_probability_floor_are_ignored() -> None:
     predictor = ScriptedPredictor((QUIET_MOVE, 0.9), (FORKING_MOVE, 0.02))
-    opponent, wrapped = steering(predictor, {QUIET_MOVE: 0, FORKING_MOVE: 0}, bias=100.0)
+    opponent, wrapped = steering(predictor, {QUIET_MOVE: 0, FORKING_MOVE: 0})
 
     assert FORKING_MOVE not in await picks(opponent, 10)
     assert len(wrapped.elos) == 10

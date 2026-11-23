@@ -92,7 +92,7 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
                 predictor,
                 steering_pool,
                 lambda: focus_concepts_of_first_player(engine),
-                settings.opponent_steering_bias,
+                settings.opponent_steering_rate,
                 settings.opponent_steering_max_eval_loss_centipawns,
             )
         app.state.opponent = game_opponent

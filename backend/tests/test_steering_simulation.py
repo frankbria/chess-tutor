@@ -22,7 +22,8 @@ ELO = 1400
 GAMES = 4
 OPPONENT_MOVES_PER_GAME = 12
 MATE = 10_000
-REPEATS = 5  # both engines sample, so each position is replayed to cut the noise
+STEERING_RATE = 0.5  # above the 0.25 default so the motif lift clears the sampling noise
+REPEATS = 10  # both engines sample, so each position is replayed to cut the noise
 
 
 @dataclass
@@ -90,7 +91,7 @@ async def test_steering_creates_more_focus_motifs_at_a_small_strength_cost(
         simulation.predictor,
         simulation.pool,
         lambda: frozenset({concept}),
-        bias=6.0,
+        rate=STEERING_RATE,
         random_source=random.Random(3),
     )
     counts = {"baseline": 0, "steered": 0}
@@ -109,4 +110,6 @@ async def test_steering_creates_more_focus_motifs_at_a_small_strength_cost(
     )
 
     assert counts["steered"] > counts["baseline"] or not must_beat_baseline
-    assert losses["steered"] / total <= losses["baseline"] / total + 30  # the configured cap
+    # Strength roughly preserved: steered moves cost at most the cap (30 cp) over Maia's first
+    # choice, so the mean rises by at most rate * cap = 15 cp; allow 15% plus 10 cp of noise.
+    assert losses["steered"] / total <= losses["baseline"] / total * 1.15 + 10

@@ -1,6 +1,7 @@
-"""Opponent steering (spec section 14, stretch): among Maia's top human-likely moves, prefer
-those whose resulting position holds a motif the player is working on, without paying more than
-a small Stockfish eval cost, so the opponent's strength stays honest."""
+"""Opponent steering (spec section 14, stretch): on a fraction of moves, play one of Maia's top
+human-likely moves whose resulting position holds a motif the player is working on, if it costs
+at most a small Stockfish eval loss. All other moves are the wrapped engine's own, so Maia's
+normal sampling (tail mistakes included) and hence the opponent's strength is preserved."""
 
 import logging
 import random
@@ -74,7 +75,7 @@ class SteeringOpponent:
         predictor: HumanMoveSource,
         analyser: PositionAnalyser,
         focus_concepts: Callable[[], frozenset[Concept]],
-        bias: float = 3.0,
+        rate: float = 0.25,
         max_eval_loss_centipawns: int = 30,
         top_moves: int = 4,
         probability_floor: float = 0.05,
@@ -84,7 +85,7 @@ class SteeringOpponent:
         self._predictor = predictor
         self._analyser = analyser
         self._focus_concepts = focus_concepts
-        self._bias = bias
+        self._rate = rate
         self._max_eval_loss = max_eval_loss_centipawns
         self._top_moves = top_moves
         self._probability_floor = probability_floor
@@ -104,6 +105,10 @@ class SteeringOpponent:
         await self._wrapped.close()
 
     async def choose_move(self, board: chess.Board, elo: int) -> chess.Move:
+        if (
+            self._random.random() >= self._rate
+        ):  # most moves stay Maia's own, tail blunders included
+            return await self._wrapped.choose_move(board, elo)
         motifs = {
             fact_type
             for concept in self._focus_concepts()
@@ -145,11 +150,9 @@ class SteeringOpponent:
         ]
         if not any(tests_focus[index] for index in affordable):
             return None
-        weights = [
-            candidates[index].probability * (self._bias if tests_focus[index] else 1.0)
-            for index in affordable
-        ]
-        chosen = self._random.choices(affordable, weights)[0]
+        motif_moves = [index for index in affordable if tests_focus[index]]
+        weights = [candidates[index].probability for index in motif_moves]
+        chosen = self._random.choices(motif_moves, weights)[0]
         return candidates[chosen].move
 
     @staticmethod
