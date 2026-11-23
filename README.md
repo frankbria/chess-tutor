@@ -43,6 +43,10 @@ For `CHESS_TUTOR_MAIA_DEVICE=cuda`, install a CUDA torch build: `MAIA3_TORCH_IND
 
 Maia-3 is AGPL-3 licensed. It runs as a separate process that the backend talks to over UCI, and it is deliberately not a Python dependency of this project.
 
+### Alternate opponents
+
+`CHESS_TUTOR_OPPONENT_ENGINE` picks the opponent: `maia3` (default), `maia2` or `stockfish` (Stockfish with `UCI_LimitStrength`, Elo clamped to the engine's range, 1320-3190 for Stockfish 17). Above `CHESS_TUTOR_OPPONENT_STOCKFISH_ABOVE_ELO` (default 2000) Stockfish plays even when a Maia is selected. Maia-2 (MIT) is the licensing fallback: run `scripts/install_maia2.sh` once; it creates an isolated venv with CPU-only torch and the backend talks to it through `tools/maia2_move`. Maia-2 weights download from Google Drive on first use into `~/.cache/maia2`.
+
 ## Database
 
 Player data lives in a SQLite file at `CHESS_TUTOR_DATABASE_PATH` (default `data/chess_tutor.db`, created on first run). Alembic migrations (`backend/migrations`) run automatically on backend startup, which also seeds the default player once.
