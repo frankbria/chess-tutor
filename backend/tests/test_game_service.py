@@ -262,5 +262,6 @@ async def test_real_maia_replies_and_opens_as_white(settings: Settings, engine: 
 def test_app_starts_maia_and_exposes_the_game_service(settings: Settings) -> None:
     enabled = settings.model_copy(update={"maia_enabled": True})
 
-    with TestClient(create_app(enabled)) as client:
-        assert isinstance(client.app.state.game_service, GameService)  # type: ignore[attr-defined]
+    app = create_app(enabled)
+    with TestClient(app):
+        assert isinstance(app.state.game_service, GameService)
