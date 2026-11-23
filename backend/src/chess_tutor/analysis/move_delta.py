@@ -79,7 +79,7 @@ def _move_refs(board: chess.Board, move: chess.Move) -> list[PieceRef]:
     """The moving piece, then the piece it captures (en passant victims are skipped: the
     victim is not on the destination square)."""
     refs = [piece_ref(board, move.from_square)]
-    if board.is_capture(move) and not board.is_en_passant(move):
+    if board.piece_at(move.to_square) is not None:
         refs.append(piece_ref(board, move.to_square))
     return refs
 

@@ -73,8 +73,7 @@ def back_rank_weaknesses(board: chess.Board) -> list[Fact]:
                 type=FactType.BACK_RANK_WEAKNESS,
                 side=king.color,
                 summary=(
-                    f"{_label(king)} has no escape square off the back rank and "
-                    "little defending it"
+                    f"{_label(king)} has no escape square off the back rank and little defending it"
                 ),
                 severity=BACK_RANK_SEVERITY,
                 squares=[king.square],

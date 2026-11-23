@@ -42,6 +42,11 @@ def string_enum(enum_class: type[StrEnum]) -> Enum:
     )
 
 
+class ConceptSource(StrEnum):
+    MOVE = "move"
+    REASONING = "reasoning"
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -113,6 +118,20 @@ class RatingHistory(Base):
     deviation_before: Mapped[float]
     deviation_after: Mapped[float]
     weight: Mapped[float]
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class ConceptEvent(Base):
+    __tablename__ = "concept_event"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id"))
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"))
+    ply: Mapped[int]
+    concept: Mapped[str]
+    source: Mapped[ConceptSource] = mapped_column(string_enum(ConceptSource))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
