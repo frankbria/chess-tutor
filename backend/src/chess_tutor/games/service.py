@@ -20,6 +20,8 @@ from chess_tutor.models import (
     PlayerColor,
 )
 from chess_tutor.openings import lookup_opening
+from chess_tutor.rating.history import record_rating
+from chess_tutor.settings import Thresholds
 
 OPPONENT_ENGINE_NAME = "maia3"
 
@@ -74,8 +76,13 @@ def chess_color(color: PlayerColor) -> chess.Color:
 
 class GameService:
     def __init__(
-        self, engine: Engine, opponent: OpponentEngine, pacing: OpponentPacing | None = None
+        self,
+        engine: Engine,
+        opponent: OpponentEngine,
+        pacing: OpponentPacing | None = None,
+        thresholds: Thresholds | None = None,
     ) -> None:
+        self._thresholds = thresholds or Thresholds()
         self._engine = engine
         self._opponent = opponent
         self._pacing = pacing
@@ -240,6 +247,7 @@ class GameService:
         game.result = result
         game.ended_at = datetime.now(UTC)
         game.pgn = self._render_pgn(session, game)
+        record_rating(session, game, self._thresholds)
 
     def _render_pgn(self, session: Session, game: Game) -> str:
         player = session.get_one(Player, game.player_id)
