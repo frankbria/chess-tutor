@@ -28,11 +28,18 @@ make lint                # every package's lint, format and type checks
 | `NEXT_PUBLIC_API_BASE_URL` | `http://127.0.0.1:<backend port>` | API URL the frontend calls |
 | `CHESS_TUTOR_DATABASE_PATH` | `<repo>/data/chess_tutor.db` | SQLite file (`data/` is gitignored) |
 | `CHESS_TUTOR_STOCKFISH_PATH` | `/usr/games/stockfish` | Stockfish binary |
-| `CHESS_TUTOR_MAIA_MODEL` / `CHESS_TUTOR_MAIA_DEVICE` | `maia-3` / `cpu` | Maia model and device |
+| `CHESS_TUTOR_MAIA_COMMAND` | `maia3-uci` | Maia-3 UCI executable |
+| `CHESS_TUTOR_MAIA_MODEL` / `CHESS_TUTOR_MAIA_DEVICE` | `5m` / `cpu` | Maia-3 size (`3m`, `5m`, `23m`, `79m`) and torch device |
 | `CHESS_TUTOR_LLM_PROVIDER` | `anthropic` | `anthropic`, or `none` for no coach |
 | `CHESS_TUTOR_LLM_API_KEY` | required | LLM API key |
 | `CHESS_TUTOR_COACHING_MODEL` / `CHESS_TUTOR_CHEAP_MODEL` | `claude-sonnet-5-5` / `claude-haiku-5-5` | Model tiers |
 | `CHESS_TUTOR_THRESHOLDS__...` | see `settings.py` | Classification, phase, concept-state and rating-weight thresholds |
+
+## Maia-3
+
+Run `scripts/install_maia3.sh` once (needs `uv`). It installs `maia3-uci` as an isolated uv tool, pinned to a commit, with CPU-only torch (about 900 MB on disk). Model weights download from Hugging Face on first use and are cached.
+
+Maia-3 is AGPL-3 licensed. It runs as a separate process that the backend talks to over UCI, and it is deliberately not a Python dependency of this project.
 
 ## Database
 

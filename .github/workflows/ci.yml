@@ -39,6 +39,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y stockfish
           echo "STOCKFISH_PATH=$(command -v stockfish || echo /usr/games/stockfish)" >> "$GITHUB_ENV"
+      - name: Cache Maia-3 install and weights
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.local/share/uv/tools/maia3
+            ~/.local/bin/maia3-*
+            ~/.cache/huggingface
+          key: maia3-${{ runner.os }}-${{ hashFiles('scripts/install_maia3.sh') }}
+      - name: Install Maia-3
+        working-directory: .
+        run: scripts/install_maia3.sh
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - run: uv sync --locked
       - run: uv run ruff check
       - run: uv run black --check .

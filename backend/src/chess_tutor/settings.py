@@ -56,7 +56,8 @@ class Settings(BaseSettings):
     database_path: Path = REPOSITORY_ROOT / "data" / "chess_tutor.db"
     stockfish_path: str = "/usr/games/stockfish"
     stockfish_pool_size: int = Field(default=2, ge=1)
-    maia_model: str = "maia-3"
+    maia_command: str = "maia3-uci"
+    maia_model: Literal["3m", "5m", "23m", "79m"] = "5m"
     maia_device: str = "cpu"
 
     llm_provider: Literal["anthropic", "none"] = "anthropic"
