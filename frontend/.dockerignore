@@ -1,0 +1,9 @@
+.venv
+node_modules
+.next
+data
+models
+.env
+.env.*
+!.env.example
+coverage
