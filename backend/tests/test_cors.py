@@ -14,7 +14,9 @@ def preflight(client: TestClient, origin: str) -> dict[str, str]:
 
 
 def test_configured_origin_is_allowed_and_others_are_not() -> None:
-    settings = Settings(_env_file=None, llm_provider="none", frontend_origins=[ALLOWED_ORIGIN])
+    settings = Settings(
+        _env_file=None, llm_provider="none", frontend_origins=[ALLOWED_ORIGIN], maia_enabled=False
+    )
     client = TestClient(create_app(settings))
 
     assert preflight(client, ALLOWED_ORIGIN)["access-control-allow-origin"] == ALLOWED_ORIGIN
