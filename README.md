@@ -19,3 +19,17 @@ uv run uvicorn chess_tutor.main:create_app --factory --reload   # http://127.0.0
 uv run pytest                                                   # tests + coverage (fails under 85%)
 uv run ruff check && uv run black --check . && uv run mypy src tests
 ```
+
+## Running the frontend
+
+Requires Node 24+.
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:3000
+npm test             # vitest + Testing Library
+npm run lint && npm run typecheck && npm run build
+```
+
+The app is an installable PWA. Browsers only offer install on `localhost` or over HTTPS, so to install on a phone, serve it over HTTPS (for example `tailscale serve`). Plain `http://` on the LAN loads the app but won't offer install.
