@@ -32,6 +32,22 @@ class GameResult(StrEnum):
     DRAW = "1/2-1/2"
 
 
+class TimeControl(StrEnum):
+    """Preset clocks as base minutes + increment seconds."""
+
+    BLITZ_5_3 = "5+3"
+    RAPID_10_5 = "10+5"
+    RAPID_15_10 = "15+10"
+
+    @property
+    def base_ms(self) -> int:
+        return int(self.value.split("+")[0]) * 60_000
+
+    @property
+    def increment_ms(self) -> int:
+        return int(self.value.split("+")[1]) * 1000
+
+
 def string_enum(enum_class: type[StrEnum]) -> Enum:
     # Store the enum values ("1-0"), not the member names, as plain strings.
     return Enum(
@@ -85,6 +101,11 @@ class Game(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    time_control: Mapped[TimeControl | None] = mapped_column(string_enum(TimeControl), default=None)
+    white_ms: Mapped[int | None] = mapped_column(default=None)  # remaining when clock_started_ms
+    black_ms: Mapped[int | None] = mapped_column(default=None)
+    clock_started_ms: Mapped[int | None] = mapped_column(default=None)  # epoch ms, side to move
+    ended_on_time: Mapped[bool] = mapped_column(default=False)
 
 
 class Move(Base):
