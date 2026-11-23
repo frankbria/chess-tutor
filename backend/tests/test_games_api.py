@@ -9,6 +9,8 @@ import uvicorn
 from fastapi.testclient import TestClient
 from scripted_opponent import ScriptedOpponent
 
+from chess_tutor.api.games import status_for
+from chess_tutor.games.service import NotPlayersTurnError
 from chess_tutor.main import create_app
 from chess_tutor.settings import Settings
 
@@ -218,12 +220,13 @@ async def test_stream_delivers_opponent_move_then_game_over(
 
     async with client.stream("GET", f"/games/{game_id}/coach/stream") as stream:
         assert stream.headers["content-type"].startswith("text/event-stream")
-        reader = asyncio.create_task(read_events(stream, 2))
+        reader = asyncio.create_task(read_events(stream, 3))
         await client.post(f"/games/{game_id}/moves", json={"uci": "e2e4"})
         await client.post(f"/games/{game_id}/resign")
         events = await asyncio.wait_for(reader, timeout=5)
 
-    assert events == [
+    assert events[0][0] == "snapshot"
+    assert events[1:] == [
         (
             "opponent_move",
             {
@@ -235,3 +238,50 @@ async def test_stream_delivers_opponent_move_then_game_over(
         ),
         ("game_over", {"type": "game_over", "result": "0-1", "reason": "resignation"}),
     ]
+
+
+async def test_stream_ends_after_game_over(live_client: httpx2.AsyncClient) -> None:
+    game_id = (
+        await live_client.post("/games", json={"opponent_elo": 1000, "color": "white"})
+    ).json()["id"]
+
+    async with live_client.stream("GET", f"/games/{game_id}/coach/stream") as stream:
+        reader = asyncio.create_task(read_events(stream, 99))
+        await live_client.post(f"/games/{game_id}/resign")
+        events = await asyncio.wait_for(reader, timeout=5)  # returns only because the stream closed
+
+    assert [name for name, _ in events] == ["snapshot", "game_over"]
+
+
+async def test_stream_of_a_finished_game_is_a_snapshot_then_closes(
+    live_client: httpx2.AsyncClient,
+) -> None:
+    game_id = (
+        await live_client.post("/games", json={"opponent_elo": 1000, "color": "white"})
+    ).json()["id"]
+    await live_client.post(f"/games/{game_id}/resign")
+
+    async with live_client.stream("GET", f"/games/{game_id}/coach/stream") as stream:
+        events = await asyncio.wait_for(read_events(stream, 99), timeout=5)
+
+    assert [(name, data["status"]) for name, data in events] == [("snapshot", "finished")]
+
+
+def test_snapshot_shows_the_opponents_first_move_for_a_black_player(settings: Settings) -> None:
+    app = create_app(settings, ScriptedOpponent("e4"))
+    with TestClient(app) as api:
+        game = create(api, color="black")
+        with api.stream("GET", f"/games/{game['id']}/coach/stream") as stream:
+            data_line = next(line for line in stream.iter_lines() if line.startswith("data:"))
+
+    snapshot = json.loads(data_line.removeprefix("data:"))
+    assert snapshot["type"] == "snapshot"
+    assert snapshot["fen"].startswith("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP")
+    assert (snapshot["side_to_move"], snapshot["last_move"]) == ("black", "e4")
+
+
+def test_subclass_of_a_mapped_error_maps_to_its_base_status() -> None:
+    class StaleMoveError(NotPlayersTurnError):
+        pass
+
+    assert status_for(StaleMoveError("late")) == 409

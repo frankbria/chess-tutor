@@ -5,12 +5,22 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from chess_tutor.models import GameStatus, PlayerColor
+
 
 class OpponentMoveEvent(BaseModel):
     type: Literal["opponent_move"] = "opponent_move"
     uci: str
     san: str
     fen: str
+
+
+class SnapshotEvent(BaseModel):
+    type: Literal["snapshot"] = "snapshot"
+    fen: str
+    side_to_move: PlayerColor
+    status: GameStatus
+    last_move: str | None
 
 
 class GameOverEvent(BaseModel):
@@ -24,6 +34,8 @@ GameEvent = OpponentMoveEvent | GameOverEvent
 
 class GameEvents:
     """In-process pub/sub keyed by game id: one queue per subscriber.
+
+    Call `publish` only from the event loop thread (asyncio queues are not thread-safe).
 
     shortcut: single process only, so a second API worker would not see these events;
     move to Redis or similar before running more than one worker.

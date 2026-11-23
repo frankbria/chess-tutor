@@ -4,9 +4,12 @@ SSE `GET /games/{id}/coach/stream` emits one JSON object per event, with the SSE
 equal to the object's `type`:
 
 - `opponent_move`: `{"type", "uci", "san", "fen"}`, the opponent's move and the resulting FEN.
+- `snapshot`: `{"type", "fen", "side_to_move", "status", "last_move"}`, always the first event on
+  a new subscription; `last_move` is the SAN of the latest move or null. A stream for a game that
+  is already finished ends right after it.
 - `game_over`: `{"type", "result", "reason"}`; `result` is `1-0`, `0-1` or `1/2-1/2`, `reason` is
   `checkmate`, `stalemate`, `insufficient_material`, `fifty_moves`, `threefold_repetition`, etc.,
-  or `resignation`.
+  or `resignation`. The stream closes after it.
 
 Events are published after the service call that caused them, so subscribe before moving.
 """
@@ -20,9 +23,10 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
-from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent
+from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
 from chess_tutor.games.service import (
     ColorChoice,
+    GameError,
     GameNotActiveError,
     GameNotFoundError,
     GameService,
@@ -35,23 +39,27 @@ from chess_tutor.models import Game, GameMode, GameResult, GameStatus, PlayerCol
 
 DEFAULT_PLAYER_ID = 1  # shortcut: single-user app, no auth yet; replace with the signed-in player.
 
-ERROR_STATUS: dict[type[Exception], int] = {
-    GameNotFoundError: 404,
-    IllegalMoveError: 422,
-    InvalidGameSettingsError: 422,
-    NotPlayersTurnError: 409,
-    GameNotActiveError: 409,
-    OpponentUnavailableError: 503,
-}
+# Ordered: the first isinstance match wins, so list subclasses before their bases.
+ERROR_STATUS: tuple[tuple[type[GameError], int], ...] = (
+    (GameNotFoundError, 404),
+    (IllegalMoveError, 422),
+    (InvalidGameSettingsError, 422),
+    (NotPlayersTurnError, 409),
+    (GameNotActiveError, 409),
+    (OpponentUnavailableError, 503),
+)
+
+
+def status_for(error: Exception) -> int:
+    return next((status for kind, status in ERROR_STATUS if isinstance(error, kind)), 500)
 
 
 async def game_error_handler(_request: Request, error: Exception) -> JSONResponse:
-    return JSONResponse({"detail": str(error)}, status_code=ERROR_STATUS[type(error)])
+    return JSONResponse({"detail": str(error)}, status_code=status_for(error))
 
 
 def register_game_errors(app: FastAPI) -> None:
-    for error_type in ERROR_STATUS:
-        app.add_exception_handler(error_type, game_error_handler)
+    app.add_exception_handler(GameError, game_error_handler)
 
 
 def get_game_service(request: Request) -> GameService:
@@ -126,6 +134,18 @@ def game_over_event(board: chess.Board, game: Game) -> GameOverEvent:
     return GameOverEvent(result=game.result.value, reason=reason)
 
 
+def describe_snapshot(service: GameService, game_id: int) -> SnapshotEvent:
+    board = service.get_board(game_id)
+    fen, turn = board.fen(), board.turn
+    last_move = board.san(board.pop()) if board.move_stack else None
+    return SnapshotEvent(
+        fen=fen,
+        side_to_move=PlayerColor.WHITE if turn == chess.WHITE else PlayerColor.BLACK,
+        status=service.get_game(game_id).status,
+        last_move=last_move,
+    )
+
+
 def publish_after_move(
     service: GameService, events: GameEvents, game: Game, plies_before: int
 ) -> None:
@@ -178,7 +198,7 @@ async def play_move(
 
 
 @router.post("/{game_id}/resign")
-def resign(game_id: int, service: Service, events: Events) -> GameResponse:
+async def resign(game_id: int, service: Service, events: Events) -> GameResponse:
     game = service.resign(game_id)
     events.publish(game_id, game_over_event(service.get_board(game_id), game))
     return describe(service, game)
@@ -191,10 +211,15 @@ def get_pgn(game_id: int, service: Service) -> str:
 
 @router.get("/{game_id}/coach/stream", response_class=EventSourceResponse)
 async def coach_stream(
-    game_id: Annotated[int, Depends(existing_game_id)], events: Events
+    game_id: Annotated[int, Depends(existing_game_id)], service: Service, events: Events
 ) -> AsyncIterator[ServerSentEvent]:
     with events.subscribe(game_id) as queue:
-        yield ServerSentEvent(comment="subscribed")
+        snapshot = describe_snapshot(service, game_id)
+        yield ServerSentEvent(data=snapshot, event=snapshot.type)
+        if snapshot.status is GameStatus.FINISHED:
+            return
         while True:
             event = await queue.get()
             yield ServerSentEvent(data=event, event=event.type)
+            if isinstance(event, GameOverEvent):
+                return
