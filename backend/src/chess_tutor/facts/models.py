@@ -15,6 +15,11 @@ class FactType(StrEnum):
     PIN = "pin"
     SKEWER = "skewer"
     DISCOVERED_ATTACK = "discovered_attack"
+    BACK_RANK_WEAKNESS = "back_rank_weakness"
+    MATE_THREAT = "mate_threat"
+    MATE_IN_ONE = "mate_in_one"
+    OVERLOADED_DEFENDER = "overloaded_defender"
+    TRAPPED_PIECE = "trapped_piece"
 
 
 class PieceRef(BaseModel):

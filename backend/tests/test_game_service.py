@@ -6,6 +6,7 @@ import chess
 import chess.pgn
 import pytest
 from fastapi.testclient import TestClient
+from scripted_opponent import ScriptedOpponent
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
@@ -26,23 +27,6 @@ from chess_tutor.models import Game, GameMode, GameResult, GameStatus, Move, Pla
 from chess_tutor.settings import Settings
 
 PLAYER_ID = 1
-
-
-class ScriptedOpponent:
-    """Test double for our own OpponentEngine protocol: plays a fixed list of SAN moves."""
-
-    def __init__(self, *san_moves: str) -> None:
-        self._remaining = list(san_moves)
-        self.elos: list[int] = []
-
-    async def start(self) -> None: ...
-
-    async def close(self) -> None: ...
-
-    async def choose_move(self, board: chess.Board, elo: int) -> chess.Move:
-        self.elos.append(elo)
-        await asyncio.sleep(0)  # a real engine yields while it thinks
-        return board.parse_san(self._remaining.pop(0))
 
 
 @pytest.fixture
