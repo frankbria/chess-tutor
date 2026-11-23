@@ -172,4 +172,4 @@ async def test_the_same_mistake_coached_three_times_escalates() -> None:
     words = [len(text.split()) for text in texts]
     assert len(set(texts)) == 3
     assert words[1] < words[0] or "?" in texts[1]
-    assert words[2] < words[0] or "?" in texts[2]
+    assert words[2] < words[0] or "focus" in texts[2].lower()
