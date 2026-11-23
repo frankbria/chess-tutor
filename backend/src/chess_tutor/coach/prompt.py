@@ -85,7 +85,7 @@ def _leaks_best_move(fact: Fact, best_move_san: str) -> bool:
     )
 
 
-def _visible_facts(context: CoachContext) -> list[Fact]:
+def visible_facts(context: CoachContext) -> list[Fact]:
     facts = [*context.fact_packet.facts, *context.move_delta_facts]
     if context.active_pre_lock_in and context.best_move_san:
         # A fact such as a fork opportunity can BE the best move; dropping only the best-move
@@ -104,7 +104,7 @@ def _context_payload(context: CoachContext) -> dict[str, object]:
         "fen": context.fact_packet.fen,
         "side_to_move": context.fact_packet.side_to_move.value,
         "facts": [
-            fact.model_dump(mode="json", exclude_defaults=True) for fact in _visible_facts(context)
+            fact.model_dump(mode="json", exclude_defaults=True) for fact in visible_facts(context)
         ],
         "locked_in": not context.active_pre_lock_in,
     }
