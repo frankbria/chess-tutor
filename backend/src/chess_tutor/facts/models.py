@@ -24,6 +24,8 @@ class FactType(StrEnum):
     MATE_IN_ONE = "mate_in_one"
     OVERLOADED_DEFENDER = "overloaded_defender"
     TRAPPED_PIECE = "trapped_piece"
+    ALLOWS = "allows"
+    IGNORED_THREAT = "ignored_threat"
 
 
 class PieceRef(BaseModel):
