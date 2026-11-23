@@ -8,6 +8,7 @@ import chess.pgn
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from chess_tutor.concepts.state import refresh_concept_states
 from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.models import (
@@ -262,6 +263,9 @@ class GameService:
         game.pgn = self._render_pgn(session, game)
         record_performance(session, game)
         record_rating(session, game, self._thresholds)
+        refresh_concept_states(
+            session, game.player_id, game.id, game.ended_at, self._thresholds.concept_state
+        )
 
     def _render_pgn(self, session: Session, game: Game) -> str:
         player = session.get_one(Player, game.player_id)
