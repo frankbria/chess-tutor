@@ -86,6 +86,8 @@ class Game(Base):
     pgn: Mapped[str | None] = mapped_column(default=None)
     opening_eco: Mapped[str | None] = mapped_column(default=None)
     opening_name: Mapped[str | None] = mapped_column(default=None)
+    accuracy: Mapped[float | None] = mapped_column(default=None)
+    performance_rating: Mapped[float | None] = mapped_column(default=None)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

@@ -1,7 +1,8 @@
 import { Chess01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
-import { Button } from "@/components/ui/button";
+import { NewGameDialog } from "@/components/lobby/new-game-dialog";
+import { ResumeList } from "@/components/lobby/resume-list";
 
 export default function HomePage() {
   return (
@@ -13,10 +14,8 @@ export default function HomePage() {
       <p className="max-w-sm text-muted-foreground">
         Play at your level with a coach that notices what you miss.
       </p>
-      {/* Enabled once game creation exists (P1.7, #19). */}
-      <Button size="lg" className="w-full max-w-xs" disabled>
-        Play
-      </Button>
+      <NewGameDialog />
+      <ResumeList />
     </section>
   );
 }

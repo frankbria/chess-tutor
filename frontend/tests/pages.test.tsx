@@ -1,8 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import { prerender } from "react-dom/static";
 import type { ReactElement } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
+import { LobbyApiProvider } from "@/components/lobby/lobby-api-context";
 import HomePage from "@/app/page";
 import PlayPage from "@/app/play/[id]/page";
 import ProgressPage from "@/app/progress/page";
@@ -17,9 +23,15 @@ async function prerenderToHtml(page: ReactElement): Promise<string> {
 
 describe("route placeholders", () => {
   it("home offers a Play action", () => {
-    render(<HomePage />);
+    render(
+      <LobbyApiProvider
+        api={{ createGame: async () => Promise.reject(new Error("unused")), listActiveGames: async () => [], getPlayer: async () => ({ rating: 1200 }) }}
+      >
+        <HomePage />
+      </LobbyApiProvider>,
+    );
     expect(screen.getByRole("heading", { level: 1, name: "Chess Tutor" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Play" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Play" })).toBeEnabled();
   });
 
   it("play shows the game id", async () => {
