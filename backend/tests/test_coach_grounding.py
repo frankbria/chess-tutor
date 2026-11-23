@@ -1,3 +1,4 @@
+import re
 from collections.abc import AsyncIterator, Callable, Sequence
 
 import anthropic
@@ -231,6 +232,10 @@ def test_the_template_validates_for_every_fact_type(
     if hint_level == 1:
         assert template.text == LEVEL_ONE_NUDGE
         assert template.fact_ids == []
+    if hint_level in (1, 2):  # no consequence line: no SAN move, no "Careful" outcome
+        assert not re.search(r"\b(?:[KQRBN][a-h]?x?[a-h][1-8]|Careful)", template.text)
+    mentioned_squares = set(re.findall(r"\b[a-h][1-8]\b", template.text))
+    assert len(mentioned_squares) <= {1: 0, 2: 1}.get(hint_level or 0, 99)
 
 
 def test_the_template_for_an_allowed_reply_names_the_reply() -> None:
@@ -423,3 +428,112 @@ async def test_real_coach_first_attempt_pass_rate_on_three_positions() -> None:
                 )
     first_attempt = sum(result.source is ReplySource.LLM for result in results)
     print(f"FIRST ATTEMPT PASSED: {first_attempt}/{len(results)}")
+
+
+START = FactPacket(fen=chess.STARTING_FEN, side_to_move=Side.WHITE, facts=[])
+
+
+def start_context(*facts: Fact, **overrides: object) -> CoachContext:
+    packet = START.model_copy(update={"facts": list(facts)})
+    return context_for(fact_packet=packet, move_san="Nf3", **NO_BEST | overrides)
+
+
+E4_POINTS = Fact(
+    id="e4:points",
+    type=FactType.ACTIVITY,
+    side=Side.WHITE,
+    summary="x",
+    squares=["e4"],
+    pieces=[PieceRef(color=Side.WHITE, piece_type="pawn", square="e4")],
+)
+E4_LINE = Fact(
+    id="e4:line", type=FactType.ACTIVITY, side=Side.WHITE, summary="x", san_lines=[["e4"]]
+)
+
+
+@pytest.mark.parametrize("text", ["Play e4.", "Then e4 is possible.", "Try e4 instead of Nf3."])
+def test_a_bare_pawn_push_after_move_wording_needs_a_verified_line(text: str) -> None:
+    context = start_context(E4_POINTS)
+
+    assert GroundingErrorKind.UNVERIFIED_MOVE in kinds(reply(text, "e4:points"), context)
+
+
+def test_a_square_mention_stays_a_square_check_and_a_verified_push_passes() -> None:
+    assert (
+        validate_reply(reply("Look at the pawn on e4.", "e4:points"), start_context(E4_POINTS))
+        == []
+    )
+    assert validate_reply(reply("Play e4 now.", "e4:line"), start_context(E4_LINE)) == []
+    assert GroundingErrorKind.UNCITED_SQUARE in kinds(
+        reply("Look at the pawn on e4."), start_context(E4_POINTS)
+    )
+
+
+SQUARE_ONLY = Fact(
+    id="d5:square", type=FactType.ACTIVITY, side=Side.WHITE, summary="x", squares=["d5"]
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "valid"),
+    [
+        ("The knight on d5 is strong.", True),
+        ("The knights on d5 are strong.", True),
+        ("The bishop on d5 is strong.", False),
+        ("The d5 knight is strong.", True),
+        ("Your d5 bishop is strong.", False),
+        ("White's d5 pawn is strong.", False),
+        ("The queen on d5 is strong.", False),
+    ],
+)
+def test_piece_types_are_checked_against_the_board_when_no_fact_gives_one(
+    text: str, valid: bool
+) -> None:
+    context = with_facts(SQUARE_ONLY, **NO_BEST)
+
+    errors = kinds(reply(text, "d5:square"), context)
+
+    assert (errors == set()) is valid
+    assert valid or errors == {GroundingErrorKind.PIECE_MISMATCH}
+
+
+def test_a_piece_on_a_square_reached_along_a_verified_line_is_checked_there() -> None:
+    reached = Fact(
+        id="reach", type=FactType.ALLOWS, side=Side.BLACK, summary="x", san_lines=[["Kd7", "Nb6+"]]
+    )
+    context = with_facts(reached, **NO_BEST)
+
+    assert (
+        validate_reply(reply("Kd7 then Nb6+, so the knight on b6 checks.", "reach"), context) == []
+    )
+    assert GroundingErrorKind.PIECE_MISMATCH in kinds(
+        reply("Kd7 then Nb6+, so the rook on b6 checks.", "reach"), context
+    )
+
+
+def test_the_players_own_move_may_be_named_even_when_it_is_the_best_move() -> None:
+    context = context_for(event=CoachEvent.ASK_THOUGHT, move_san="Nc7+", active_pre_lock_in=True)
+
+    template = template_reply(context)
+
+    assert "Nc7+" in template.text
+    assert validate_reply(template, context) == []
+    assert validate_reply(reply("Nc7+ was a fine try."), context) == []
+    elsewhere = context.model_copy(update={"move_san": "Kf2"})
+    assert GroundingErrorKind.BEST_MOVE_LEAK in kinds(reply("Nc7+ is it."), elsewhere)
+
+
+def test_level_two_skips_the_tactical_template_for_allows() -> None:
+    allows = Fact(
+        id="allows:e8d7",
+        type=FactType.ALLOWS,
+        side=Side.BLACK,
+        summary="x",
+        squares=["e8", "d7"],
+        pieces=[PieceRef(color=Side.BLACK, piece_type="king", square="e8")],
+        san_lines=[["Kd7"]],
+    )
+    template = template_reply(with_facts(allows, hint_level=2, active_pre_lock_in=True))
+
+    assert "Kd7" not in template.text
+    assert "e8" in template.text
