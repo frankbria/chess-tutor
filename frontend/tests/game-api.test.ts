@@ -43,6 +43,11 @@ describe("httpGameApi", () => {
     expect(requests.map((r) => `${r.method} ${r.url}`)).toEqual(["GET /games/7", "POST /games/7/resign"]);
   });
 
+  it("fetches the persisted coach messages", async () => {
+    await httpGameApi.getCoachMessages(7);
+    expect(requests.at(-1)).toMatchObject({ method: "GET", url: "/games/7/coach/messages" });
+  });
+
   it("throws an ApiError carrying the status and server detail", async () => {
     const error = await httpGameApi.playMove(7, "e2e4").catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(ApiError);

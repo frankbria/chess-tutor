@@ -27,6 +27,7 @@ Events are published after the service call that caused them, so subscribe befor
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Annotated
 
 import chess
@@ -34,6 +35,8 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
 from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
 from chess_tutor.coach.passive import PassiveCoach
@@ -49,7 +52,18 @@ from chess_tutor.games.service import (
     NotPlayersTurnError,
     OpponentUnavailableError,
 )
-from chess_tutor.models import Game, GameMode, GameResult, GameStatus, PlayerColor, TimeControl
+from chess_tutor.models import (
+    CoachMessage,
+    CoachMessageKind,
+    CoachRole,
+    Game,
+    GameMode,
+    GameResult,
+    GameStatus,
+    Move,
+    PlayerColor,
+    TimeControl,
+)
 
 CLOCK_POLL_SECONDS = 1.0
 DEFAULT_PLAYER_ID = 1  # shortcut: single-user app, no auth yet; replace with the signed-in player.
@@ -263,6 +277,43 @@ async def resign(game_id: int, service: Service, events: Events, coach: Coach) -
 @router.get("/{game_id}/pgn", response_class=PlainTextResponse)
 def get_pgn(game_id: int, service: Service) -> str:
     return service.get_pgn(game_id)
+
+
+class CoachMessageResponse(BaseModel):
+    ply: int = Field(description="The 1-based ply of the move the message refers to")
+    role: CoachRole
+    kind: CoachMessageKind
+    text: str
+    classification: str | None = Field(description="The move's label, null if it was not scored")
+    created_at: datetime
+
+
+@router.get("/{game_id}/coach/messages")
+def coach_messages(
+    game_id: Annotated[int, Depends(existing_game_id)], request: Request
+) -> list[CoachMessageResponse]:
+    """The persisted conversation in order, so a reloaded panel matches the live stream."""
+    engine: Engine = request.app.state.engine
+    with Session(engine) as session:
+        rows = session.execute(
+            select(CoachMessage, Move.classification)
+            .outerjoin(
+                Move, (Move.game_id == CoachMessage.game_id) & (Move.ply == CoachMessage.ply)
+            )
+            .where(CoachMessage.game_id == game_id)
+            .order_by(CoachMessage.id)
+        ).all()
+    return [
+        CoachMessageResponse(
+            ply=message.ply,
+            role=message.role,
+            kind=message.kind,
+            text=message.text,
+            classification=classification,
+            created_at=message.created_at,
+        )
+        for message, classification in rows
+    ]
 
 
 @router.get("/{game_id}/coach/stream", response_class=EventSourceResponse)

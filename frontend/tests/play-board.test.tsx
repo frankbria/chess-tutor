@@ -52,6 +52,7 @@ function fakeApi(initial: GameState, overrides: Partial<GameApi> = {}) {
     getGame: async () => initial,
     playMove: async () => initial,
     resign: async () => ({ ...initial, status: "finished", result: "0-1" }),
+    getCoachMessages: async () => [],
     subscribe: (_id, next) => {
       handlers = next;
       return () => undefined;

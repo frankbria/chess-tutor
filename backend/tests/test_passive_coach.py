@@ -145,6 +145,23 @@ def test_a_blunder_gets_a_grounded_comment(settings: Settings) -> None:
     assert '"locked_in":true' in call.messages[0].content
 
 
+def test_stored_comments_are_served_with_their_classification(settings: Settings) -> None:
+    with started(settings, scripted(COMMENT)) as harness:
+        assert harness.api.get(f"/games/{harness.game_id}/coach/messages").json() == []
+        harness.play(4)
+
+        [message] = harness.api.get(f"/games/{harness.game_id}/coach/messages").json()
+        assert message.pop("created_at")
+        assert message == {
+            "ply": 7,
+            "role": "coach",
+            "kind": "comment",
+            "text": COMMENT.text,
+            "classification": "blunder",
+        }
+        assert harness.api.get("/games/999/coach/messages").status_code == 404
+
+
 def test_ordinary_good_moves_make_no_llm_call(settings: Settings) -> None:
     model = scripted()
     with started(settings, model) as harness:

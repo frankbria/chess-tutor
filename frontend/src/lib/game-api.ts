@@ -28,7 +28,20 @@ export interface GameState {
   ended_on_time: boolean;
 }
 
+export type CoachMessageKind = "comment" | "question" | "hint" | "answer";
+
+export interface CoachMessage {
+  /** The 1-based ply of the move this message refers to. */
+  ply: number;
+  role: "coach" | "player";
+  kind: CoachMessageKind;
+  text: string;
+  /** The move's label (e.g. "blunder"); null if it was not scored. */
+  classification: string | null;
+}
+
 export interface GameStreamHandlers {
+  onCoachComment: (event: { ply: number; text: string; classification: string }) => void;
   onSnapshot: (event: { fen: string; status: string }) => void;
   onOpponentMove: (event: { uci: string; san: string; fen: string; clock: ClockState | null }) => void;
   onGameOver: (event: { result: GameResult; reason: string }) => void;
@@ -41,6 +54,7 @@ export interface GameApi {
   getGame(id: number): Promise<GameState>;
   playMove(id: number, uci: string): Promise<GameState>;
   resign(id: number): Promise<GameState>;
+  getCoachMessages(id: number): Promise<CoachMessage[]>;
   /** Returns the unsubscribe function. */
   subscribe(id: number, handlers: GameStreamHandlers): () => void;
 }
@@ -103,6 +117,7 @@ export const httpGameApi: GameApi = {
   getGame: (id) => request(`/games/${id}`, "GET"),
   playMove: (id, uci) => request(`/games/${id}/moves`, "POST", { uci }),
   resign: (id) => request(`/games/${id}/resign`, "POST"),
+  getCoachMessages: (id) => request<CoachMessage[]>(`/games/${id}/coach/messages`, "GET"),
   subscribe(id, handlers) {
     const source = new EventSource(`${API_BASE_URL}/games/${id}/coach/stream`);
     const listen = <T,>(name: string, handle: (event: T) => void) =>
@@ -111,6 +126,7 @@ export const httpGameApi: GameApi = {
         if (event) handle(event);
       });
     source.onerror = handlers.onConnectionLost;
+    listen("coach_comment", handlers.onCoachComment);
     listen("snapshot", handlers.onSnapshot);
     listen("opponent_move", handlers.onOpponentMove);
     listen("game_over", (event: { result: GameResult; reason: string }) => {
