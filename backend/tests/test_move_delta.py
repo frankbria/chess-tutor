@@ -192,3 +192,12 @@ def test_facts_already_in_the_reference_position_are_not_new() -> None:
 
     assert any(fact.type is FactType.FORK for fact in credited)
     assert all(fact.type is not FactType.FORK for fact in not_credited)
+
+
+async def test_ignoring_a_quiet_threat_is_reported(pool: StockfishPool) -> None:
+    board = chess.Board("3qk2r/pp3ppp/8/8/1n4Q1/8/PP3PPP/R3K1N1 w - - 0 1")
+    delta = await move_delta(board, board.parse_san("Qg3"), pool)
+
+    threat = fact_of(delta, FactType.IGNORED_THREAT)
+    assert threat.san_lines == [["Nc2+"]]
+    assert threat.squares == ["b4"]

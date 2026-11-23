@@ -25,6 +25,7 @@ from chess_tutor.models import (
 )
 from chess_tutor.openings import lookup_opening
 from chess_tutor.rating.history import record_rating
+from chess_tutor.rating.performance import record_performance
 from chess_tutor.settings import Thresholds
 
 OPPONENT_ENGINE_NAME = "maia3"
@@ -62,6 +63,7 @@ class OpponentUnavailableError(GameError):
 
 MINIMUM_OPPONENT_ELO = 400
 MAXIMUM_OPPONENT_ELO = 3000
+ELO_STEP = 50
 
 
 class NotPlayersTurnError(GameError):
@@ -102,13 +104,15 @@ class GameService:
     async def create_game(
         self,
         player_id: int,
-        opponent_elo: int,
+        opponent_elo: int | None = None,
         color: ColorChoice = ColorChoice.RANDOM,
         mode: GameMode = GameMode.REGULAR,
         time_control: TimeControl | None = None,
     ) -> Game:
         if time_control is not None and mode is not GameMode.REGULAR:
             raise InvalidGameSettingsError("only Regular mode can be timed")
+        if opponent_elo is None:
+            opponent_elo = self._default_opponent_elo(player_id, mode)
         if not MINIMUM_OPPONENT_ELO <= opponent_elo <= MAXIMUM_OPPONENT_ELO:
             raise InvalidGameSettingsError(
                 f"opponent Elo must be between {MINIMUM_OPPONENT_ELO} and {MAXIMUM_OPPONENT_ELO}"
@@ -131,6 +135,15 @@ class GameService:
             session.add(game)
             session.commit()
         return await self.play_opponent_move(game.id)
+
+    def _default_opponent_elo(self, player_id: int, mode: GameMode) -> int:
+        """The player's rating, plus the stretch offset in tutor modes, to the nearest 50."""
+        with Session(self._engine) as session:
+            target = session.get_one(Player, player_id).rating
+        if mode is not GameMode.REGULAR:
+            target += self._thresholds.tutor_stretch_offset
+        rounded = round(target / ELO_STEP) * ELO_STEP
+        return min(MAXIMUM_OPPONENT_ELO, max(MINIMUM_OPPONENT_ELO, rounded))
 
     async def play_move(self, game_id: int, uci: str) -> Game:
         """Apply the player's move, then let the opponent answer if the game goes on."""
@@ -320,6 +333,7 @@ class GameService:
         game.result = result
         game.ended_at = datetime.now(UTC)
         game.pgn = self._render_pgn(session, game)
+        record_performance(session, game)
         record_rating(session, game, self._thresholds)
 
     def _render_pgn(self, session: Session, game: Game) -> str:
