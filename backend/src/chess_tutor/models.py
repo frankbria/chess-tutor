@@ -147,6 +147,23 @@ class Move(Base):
     classification: Mapped[str | None] = mapped_column(default=None)
     eval_before: Mapped[float | None] = mapped_column(default=None)  # mover's win probability
     eval_after: Mapped[float | None] = mapped_column(default=None)
+    proposed_attempts: Mapped[int] = mapped_column(
+        default=0
+    )  # Active mode: rethinks before lock-in
+
+
+class MoveProposal(Base):
+    """Active mode's pending move for a game: not on the board until it is locked in."""
+
+    __tablename__ = "move_proposal"
+
+    id: Mapped[int] = mapped_column(primary_key=True)  # the analysis id handed to the client
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), unique=True)
+    ply: Mapped[int]
+    uci: Mapped[str | None] = mapped_column(default=None)  # None between a rethink and the next
+    rethinks: Mapped[int] = mapped_column(default=0)
+    win_probability_before: Mapped[float | None] = mapped_column(default=None)
+    win_probability_after: Mapped[float | None] = mapped_column(default=None)
 
 
 class RatingHistory(Base):
