@@ -3,7 +3,8 @@
 SSE `GET /games/{id}/coach/stream` emits one JSON object per event, with the SSE `event:` name
 equal to the object's `type`:
 
-- `opponent_move`: `{"type", "uci", "san", "fen"}`, the opponent's move and the resulting FEN.
+- `opponent_move`: `{"type", "uci", "san", "fen", "clock"}`: the opponent's move, the resulting FEN
+  and the clock after it (null if untimed).
 - `snapshot`: `{"type", "fen", "side_to_move", "status", "last_move", "clock"}`, always the first
   event on a new subscription; `last_move` is the SAN of the latest move or null; `clock` is
   `{white_ms, black_ms, running}` for a timed game, else null. A stream for a game that
@@ -181,7 +182,12 @@ def publish_after_move(
         reply = board.pop()
         events.publish(
             game.id,
-            OpponentMoveEvent(uci=reply.uci(), san=board.san(reply), fen=_after(board, reply)),
+            OpponentMoveEvent(
+                uci=reply.uci(),
+                san=board.san(reply),
+                fen=_after(board, reply),
+                clock=service.clock_state(game, not board.turn),
+            ),
         )
         board.push(reply)
     if game.status is GameStatus.FINISHED:
@@ -212,8 +218,9 @@ def list_games(service: Service, status: GameStatus | None = None) -> list[GameR
 
 
 @router.get("/{game_id}")
-def get_game(game_id: int, service: Service) -> GameResponse:
-    return describe(service, service.check_flag(game_id))
+async def get_game(game_id: int, service: Service) -> GameResponse:
+    # Server-authoritative clock: a read must reflect a flag that happened while nobody watched.
+    return describe(service, await service.check_flag(game_id))
 
 
 @router.post("/{game_id}/moves")
@@ -251,7 +258,7 @@ async def coach_stream(
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=CLOCK_POLL_SECONDS)
             except TimeoutError:
-                game = service.check_flag(game_id)
+                game = await service.check_flag(game_id)
                 if game.status is not GameStatus.FINISHED:
                     continue
                 event = game_over_event(service.get_board(game_id), game)

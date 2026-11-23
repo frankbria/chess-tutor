@@ -240,6 +240,7 @@ async def test_stream_delivers_opponent_move_then_game_over(
                 "uci": "e7e5",
                 "san": "e5",
                 "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+                "clock": None,
             },
         ),
         ("game_over", {"type": "game_over", "result": "0-1", "reason": "resignation"}),
@@ -324,3 +325,18 @@ async def test_stream_emits_game_over_when_the_clock_flags(
         "game_over",
         {"type": "game_over", "result": "0-1", "reason": "timeout"},
     )
+
+
+def test_opponent_move_event_carries_the_clock_after_the_reply(settings: Settings) -> None:
+    app = create_app(settings, ScriptedOpponent("e5"))
+    with TestClient(app) as api:
+        created = api.post(
+            "/games", json={"opponent_elo": 1000, "color": "white", "time_control": "5+3"}
+        ).json()
+        with app.state.game_events.subscribe(created["id"]) as queue:
+            api.post(f"/games/{created['id']}/moves", json={"uci": "e2e4"})
+            event = queue.get_nowait()
+
+    assert event.type == "opponent_move"
+    assert event.clock is not None and event.clock.running == "white"
+    assert event.clock.white_ms > 5 * 60_000 and event.clock.black_ms > 5 * 60_000

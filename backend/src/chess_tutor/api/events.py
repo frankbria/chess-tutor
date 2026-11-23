@@ -14,6 +14,7 @@ class OpponentMoveEvent(BaseModel):
     uci: str
     san: str
     fen: str
+    clock: ClockState | None
 
 
 class SnapshotEvent(BaseModel):

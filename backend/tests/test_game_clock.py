@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Iterator
 
 import chess
@@ -152,10 +153,10 @@ async def test_check_flag_ends_a_game_whose_side_to_move_ran_out(
     game = await service.create_game(
         PLAYER_ID, 1000, ColorChoice.WHITE, time_control=TimeControl.BLITZ_5_3
     )
-    assert service.check_flag(game.id).status is GameStatus.ACTIVE
+    assert (await service.check_flag(game.id)).status is GameStatus.ACTIVE
 
     clock.advance(5 * MINUTE + 1)
-    flagged = service.check_flag(game.id)
+    flagged = await service.check_flag(game.id)
 
     assert (flagged.status, flagged.result, flagged.ended_on_time) == (
         GameStatus.FINISHED,
@@ -171,7 +172,7 @@ async def test_untimed_games_have_no_clock(engine: Engine, clock: FakeClock) -> 
 
     clock.advance(100 * MINUTE)
 
-    assert service.check_flag(game.id).status is GameStatus.ACTIVE
+    assert (await service.check_flag(game.id)).status is GameStatus.ACTIVE
     assert service.clock_state(game, chess.WHITE) is None
 
 
@@ -229,3 +230,25 @@ def test_get_flags_a_game_that_ran_out_while_nobody_watched(settings: Settings) 
 
     assert (game["status"], game["result"], game["ended_on_time"]) == ("finished", "0-1", True)
     assert game["clock"]["running"] is None
+
+
+async def test_a_flag_check_racing_a_move_leaves_one_consistent_outcome(
+    engine: Engine, clock: FakeClock
+) -> None:
+    service = timed_service(engine, clock, "e5")
+    game = await service.create_game(
+        PLAYER_ID, 1000, ColorChoice.WHITE, time_control=TimeControl.BLITZ_5_3
+    )
+    clock.advance(5 * MINUTE)
+
+    await asyncio.gather(
+        service.check_flag(game.id), service.play_move(game.id, "e2e4"), return_exceptions=True
+    )
+
+    finished = service.get_game(game.id)
+    assert (finished.status, finished.result, finished.ended_on_time) == (
+        GameStatus.FINISHED,
+        GameResult.BLACK_WINS,
+        True,
+    )
+    assert service.get_board(game.id).move_stack == []

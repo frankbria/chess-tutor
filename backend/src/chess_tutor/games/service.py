@@ -205,16 +205,17 @@ class GameService:
             session.commit()
             return game
 
-    def check_flag(self, game_id: int) -> Game:
+    async def check_flag(self, game_id: int) -> Game:
         """End the game on time if the side to move has run out; otherwise return it unchanged."""
-        with Session(self._engine, expire_on_commit=False) as session:
-            game = self._get(session, game_id)
-            if game.status is GameStatus.ACTIVE and game.time_control is not None:
-                mover = self._board(session, game_id).turn
-                if self._remaining_ms(game, mover) <= 0:
-                    self._flag(session, game, mover)
-                    session.commit()
-            return game
+        async with self._move_lock:  # a flag must not interleave with a move's read-check-write
+            with Session(self._engine, expire_on_commit=False) as session:
+                game = self._get(session, game_id)
+                if game.status is GameStatus.ACTIVE and game.time_control is not None:
+                    mover = self._board(session, game_id).turn
+                    if self._remaining_ms(game, mover) <= 0:
+                        self._flag(session, game, mover)
+                        session.commit()
+                return game
 
     def clock_state(self, game: Game, turn: chess.Color) -> ClockState | None:
         if game.time_control is None or game.white_ms is None or game.black_ms is None:
@@ -295,6 +296,8 @@ class GameService:
         self._finish(session, game, result, on_time=True)
 
     def _push(self, session: Session, game: Game, board: chess.Board, move: chess.Move) -> None:
+        if game.status is not GameStatus.ACTIVE:
+            raise GameNotActiveError(f"game {game.id} is already finished")
         mover = board.turn
         if game.time_control is not None:
             remaining = self._remaining_ms(game, mover)

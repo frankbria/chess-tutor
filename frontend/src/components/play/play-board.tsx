@@ -53,8 +53,10 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
         setConnectionLost(false);
         void resync();
       },
-      onOpponentMove: () => {
+      onOpponentMove: ({ clock }) => {
         setConnectionLost(false);
+        // Switch the running clock now instead of waiting for the refetch.
+        if (clock) setGame((current) => current && { ...current, clock });
         void resync();
       },
       onGameOver: ({ reason }) => {

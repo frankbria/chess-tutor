@@ -30,7 +30,7 @@ export interface GameState {
 
 export interface GameStreamHandlers {
   onSnapshot: (event: { fen: string; status: string }) => void;
-  onOpponentMove: (event: { uci: string; san: string; fen: string }) => void;
+  onOpponentMove: (event: { uci: string; san: string; fen: string; clock: ClockState | null }) => void;
   onGameOver: (event: { result: GameResult; reason: string }) => void;
   /** EventSource reconnects by itself; the next event means the stream is back. */
   onConnectionLost: () => void;
