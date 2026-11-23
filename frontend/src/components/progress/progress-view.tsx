@@ -2,20 +2,33 @@
 
 import { useEffect, useState } from "react";
 
-import { describeTrend, type PlayerRating, type RatingHistoryEntry } from "@/lib/progress-api";
+import {
+  describeTrend,
+  type ConceptSummary,
+  type PlayerRating,
+  type RatingHistoryEntry,
+} from "@/lib/progress-api";
 
 import { useProgressApi } from "./progress-api-context";
+import { ConceptGroups } from "./concept-groups";
 import { RatingChart } from "./rating-chart";
 
 export function ProgressView() {
   const api = useProgressApi();
-  const [data, setData] = useState<{ player: PlayerRating; history: RatingHistoryEntry[] } | null>(null);
+  const [data, setData] = useState<{
+    player: PlayerRating;
+    history: RatingHistoryEntry[];
+    concepts: ConceptSummary[];
+  } | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let current = true;
-    Promise.all([api.getPlayer(), api.getRatingHistory()])
-      .then(([player, history]) => current && setData({ player, history }))
+    Promise.all([api.getPlayer(), api.getRatingHistory(), api.getConcepts()])
+      .then(
+        ([player, history, concepts]) =>
+          current && setData({ player, history, concepts }),
+      )
       .catch(() => current && setFailed(true));
     return () => {
       current = false;
@@ -29,9 +42,10 @@ export function ProgressView() {
       </p>
     );
   }
-  if (data === null) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (data === null)
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
 
-  const { player, history } = data;
+  const { player, history, concepts } = data;
   const rating = Math.round(player.rating);
   const trend = describeTrend(history, rating);
 
@@ -42,13 +56,18 @@ export function ProgressView() {
           Rating
         </h2>
         <p className="text-3xl font-bold">
-          {rating} <span className="text-base font-normal text-muted-foreground">± {Math.round(player.rating_deviation)}</span>
+          {rating}{" "}
+          <span className="text-base font-normal text-muted-foreground">
+            ± {Math.round(player.rating_deviation)}
+          </span>
         </p>
         <p className="text-sm text-muted-foreground">
           {history.length} {history.length === 1 ? "game" : "games"} rated
         </p>
         {history.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Finish a game and your rating chart will appear here.</p>
+          <p className="text-sm text-muted-foreground">
+            Finish a game and your rating chart will appear here.
+          </p>
         ) : (
           <>
             <p className="text-sm">{trend}</p>
@@ -56,11 +75,17 @@ export function ProgressView() {
           </>
         )}
       </section>
-      <section aria-labelledby="focus-heading" className="grid gap-2">
+      <section aria-labelledby="focus-heading" className="grid min-w-0 gap-3">
         <h2 id="focus-heading" className="text-lg font-semibold">
           Focus areas
         </h2>
-        <p className="text-sm text-muted-foreground">Your focus areas will appear after a few games.</p>
+        {concepts.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Your focus areas will appear after a few games.
+          </p>
+        ) : (
+          <ConceptGroups concepts={concepts} />
+        )}
       </section>
     </>
   );
