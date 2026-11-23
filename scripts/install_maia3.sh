@@ -13,3 +13,5 @@ if [ -n "$TORCH_INDEX" ]; then
 fi
 
 uv tool install --force "maia3 @ git+https://github.com/CSSLab/maia3@${MAIA3_COMMIT}" "${index_args[@]}"
+
+echo "maia3 tool interpreter (used by tools/maia3_policy): $(uv tool dir)/maia3/bin/python"
