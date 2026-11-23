@@ -471,6 +471,57 @@ def test_a_square_mention_stays_a_square_check_and_a_verified_push_passes() -> N
     )
 
 
+PROMOTION = "8/4P3/8/8/8/8/k7/4K3 w - - 0 1"
+
+
+@pytest.mark.parametrize("text", ["e4+ wins material.", "Then e4# ends it.", "e4+."])
+def test_a_pawn_push_with_a_check_suffix_needs_a_verified_line(text: str) -> None:
+    assert GroundingErrorKind.UNVERIFIED_MOVE in kinds(
+        reply(text, "e4:points"), start_context(E4_POINTS)
+    )
+    assert validate_reply(reply(text, "e4:line"), start_context(E4_LINE)) == []
+
+
+def test_a_promotion_needs_a_verified_line() -> None:
+    line = Fact(
+        id="promo", type=FactType.ACTIVITY, side=Side.WHITE, summary="x", san_lines=[["e8=Q"]]
+    )
+    packet = FactPacket(fen=PROMOTION, side_to_move=Side.WHITE, facts=[line])
+    context = context_for(fact_packet=packet, move_san="Kd1", **NO_BEST)
+
+    assert validate_reply(reply("Push e8=Q now.", "promo"), context) == []
+    for text in ("Push e8=Q now.", "Then e8=Q+ wins."):
+        assert GroundingErrorKind.UNVERIFIED_MOVE in kinds(
+            reply(text),
+            context.model_copy(update={"fact_packet": packet.model_copy(update={"facts": []})}),
+        )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "With a8 and e8 both attacked, the fork wins material.",
+        "With a8 and e8 under attack, the fork wins material.",
+        "With a8 attacked and e8 weak, Black is in trouble.",
+        "With e8 hanging, Black must react.",
+        "With a8, e8 and c7 all controlled, it works.",
+        "It works with a8 and e8 both defended.",
+    ],
+)
+def test_with_square_in_a_description_is_not_a_move(text: str) -> None:
+    assert validate_reply(reply(text, FORK), context_for()) == []
+
+
+@pytest.mark.parametrize(
+    "text", ["With e4, White takes space.", "Open with e4.", "Start with e4; it is solid."]
+)
+def test_with_square_as_a_recommended_move_needs_a_verified_line(text: str) -> None:
+    assert GroundingErrorKind.UNVERIFIED_MOVE in kinds(
+        reply(text, "e4:points"), start_context(E4_POINTS)
+    )
+    assert validate_reply(reply(text, "e4:line"), start_context(E4_LINE)) == []
+
+
 SQUARE_ONLY = Fact(
     id="d5:square", type=FactType.ACTIVITY, side=Side.WHITE, summary="x", squares=["d5"]
 )
