@@ -14,7 +14,8 @@ fi
 
 # maia2 ships no executables, so `uv tool install` would discard it: use a plain venv instead.
 MAIA2_VENV="${MAIA2_VENV:-$HOME/.local/share/chess-tutor/maia2-venv}"
-uv venv --python 3.12 "$MAIA2_VENV"
+# Reuse an existing (e.g. CI-cached) venv; the pip install below is a no-op when already satisfied.
+[ -x "$MAIA2_VENV/bin/python" ] || uv venv --python 3.12 "$MAIA2_VENV"
 uv pip install --python "$MAIA2_VENV/bin/python" "maia2 @ git+https://github.com/CSSLab/maia2@${MAIA2_COMMIT}" "${index_args[@]}"
 
 echo "maia2 interpreter (used by tools/maia2_move): $MAIA2_VENV/bin/python"
