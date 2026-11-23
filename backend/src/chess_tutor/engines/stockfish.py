@@ -110,6 +110,6 @@ class StockfishPool:
     async def _quit(engine: chess.engine.UciProtocol) -> None:
         try:
             await asyncio.wait_for(engine.quit(), timeout=2)
-        except (chess.engine.EngineError, TimeoutError, asyncio.CancelledError):
+        except (chess.engine.EngineError, TimeoutError):
             if engine.transport is not None:
                 engine.transport.kill()
