@@ -11,13 +11,13 @@ An AI-assisted chess tutor. Play a human-like engine (Maia-3) at your level whil
 ## Quick start and configuration
 
 ```bash
-cp .env.example .env     # set CHESS_TUTOR_LLM_API_KEY
+cp .env.example .env     # optional; for the coach run `ant auth login` or set CHESS_TUTOR_LLM_API_KEY
 make dev                 # backend :8000 + frontend :3000, Ctrl-C stops both
 make test                # every package's tests
 make lint                # every package's lint, format and type checks
 ```
 
-`make dev` refuses to start, naming the variable to change, if a port is busy. The backend refuses to start without `CHESS_TUTOR_LLM_API_KEY` unless `CHESS_TUTOR_LLM_PROVIDER=none`. Settings come from the environment or the root `.env`. `make dev` does not read `.env`: its ports come only from the environment or the 8000/3000 defaults.
+`make dev` refuses to start, naming the variable to change, if a port is busy. Settings come from the environment or the root `.env`. `make dev` does not read `.env`: its ports come only from the environment or the 8000/3000 defaults.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -32,7 +32,7 @@ make lint                # every package's lint, format and type checks
 | `CHESS_TUTOR_MAIA_COMMAND` | `maia3-uci` | Maia-3 UCI executable |
 | `CHESS_TUTOR_MAIA_MODEL` / `CHESS_TUTOR_MAIA_DEVICE` | `5m` / `cpu` | Maia-3 size (`3m`, `5m`, `23m`, `79m`) and torch device |
 | `CHESS_TUTOR_LLM_PROVIDER` | `anthropic` | `anthropic`, or `none` for no coach |
-| `CHESS_TUTOR_LLM_API_KEY` | required | LLM API key |
+| `CHESS_TUTOR_LLM_API_KEY` | unset | Optional API key. Unset, the Anthropic SDK uses `ANTHROPIC_API_KEY` or the profile from `ant auth login` |
 | `CHESS_TUTOR_COACHING_MODEL` / `CHESS_TUTOR_CHEAP_MODEL` | `claude-sonnet-5-5` / `claude-haiku-5-5` | Model tiers |
 | `CHESS_TUTOR_THRESHOLDS__...` | see `settings.py` | Classification, phase, concept-state and rating-weight thresholds |
 

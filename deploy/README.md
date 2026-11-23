@@ -6,7 +6,7 @@ infrastructure runbook. Nothing host-specific belongs in this repository.
 ## Run
 
 ```bash
-cp .env.example .env        # set CHESS_TUTOR_LLM_API_KEY, or CHESS_TUTOR_LLM_PROVIDER=none
+cp .env.example .env        # optional: CHESS_TUTOR_LLM_API_KEY, or CHESS_TUTOR_LLM_PROVIDER=none
 docker compose up -d --build
 docker compose ps           # both services should report "healthy"
 ```
