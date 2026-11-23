@@ -2,8 +2,8 @@ import type { ColorChoice, GameMode } from "@/lib/game-api";
 
 export const MODES: { value: GameMode; label: string; description: string }[] = [
   { value: "regular", label: "Regular", description: "Just play. No coaching during the game." },
-  { value: "passive", label: "Passive tutor", description: "The coach watches and reviews with you afterwards." },
-  { value: "active", label: "Active tutor", description: "The coach speaks up when you miss something." },
+  { value: "passive", label: "Passive tutor", description: "The coach flags blunders and great moves as you play." },
+  { value: "active", label: "Active tutor", description: "Propose a move and the coach points out what you might have missed before you lock it in." },
 ];
 
 export const COLORS: { value: ColorChoice; label: string }[] = [
