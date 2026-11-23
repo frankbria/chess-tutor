@@ -83,7 +83,12 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
             engine.dispose()
 
     app = FastAPI(title="Chess Tutor", lifespan=lifespan)
-    app.add_middleware(CORSMiddleware, allow_origins=settings.frontend_origins)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.frontend_origins,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
     app.include_router(games_router)
     register_game_errors(app)
 

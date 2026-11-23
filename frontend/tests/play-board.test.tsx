@@ -1,0 +1,236 @@
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+
+import { GameOverDialog } from "@/components/play/game-over-dialog";
+import { MoveList } from "@/components/play/move-list";
+import { PlayBoard } from "@/components/play/play-board";
+import { ApiError, parseStreamEvent, type GameApi, type GameState, type GameStreamHandlers } from "@/lib/game-api";
+import { destinationsFrom, describeResult, isPromotion, lastMoveSquares } from "@/lib/chess-board";
+
+// chessground needs real layout; this stand-in exposes what the board would be given.
+vi.mock("@/components/play/chessboard", () => ({
+  Chessboard: (props: {
+    fen: string;
+    orientation: string;
+    destinations?: Map<string, string[]>;
+    lastMove?: [string, string];
+    onMove: (from: string, to: string) => void;
+  }) => (
+    <div data-testid="board" data-orientation={props.orientation} data-last-move={props.lastMove?.join("")}>
+      <span data-testid="locked">{props.destinations ? "open" : "locked"}</span>
+      <button onClick={() => props.onMove("e2", "e4")}>drop e2e4</button>
+      <button onClick={() => props.onMove("a7", "a8")}>drop a7a8</button>
+    </div>
+  ),
+}));
+
+const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+function game(overrides: Partial<GameState> = {}): GameState {
+  return {
+    id: 1,
+    mode: "regular",
+    player_color: "white",
+    status: "active",
+    result: null,
+    fen: START_FEN,
+    moves: [],
+    side_to_move: "white",
+    legal_moves: ["e2e4", "a7a8q", "a7a8n"],
+    ...overrides,
+  };
+}
+
+function fakeApi(initial: GameState, overrides: Partial<GameApi> = {}) {
+  let handlers: GameStreamHandlers | undefined;
+  const api: GameApi = {
+    getGame: async () => initial,
+    playMove: async () => initial,
+    resign: async () => ({ ...initial, status: "finished", result: "0-1" }),
+    subscribe: (_id, next) => {
+      handlers = next;
+      return () => undefined;
+    },
+    ...overrides,
+  };
+  return { api, stream: () => handlers };
+}
+
+describe("PlayBoard", () => {
+  it("orients the board to the player's colour and unlocks it on their turn", async () => {
+    const { api } = fakeApi(game({ player_color: "black", side_to_move: "black" }));
+    render(<PlayBoard gameId={1} api={api} />);
+    expect(await screen.findByTestId("board")).toHaveAttribute("data-orientation", "black");
+    expect(screen.getByTestId("locked")).toHaveTextContent("open");
+    expect(screen.getByText("Your move")).toBeInTheDocument();
+  });
+
+  it("restores the position on load, locks the board on the opponent's turn and lists the moves", async () => {
+    const { api } = fakeApi(game({ moves: ["e4", "e5"], side_to_move: "black" }));
+    render(<PlayBoard gameId={1} api={api} />);
+    expect(await screen.findByTestId("board")).toHaveAttribute("data-last-move", "e7e5");
+    expect(screen.getByTestId("locked")).toHaveTextContent("locked");
+    expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent("1.e4e5");
+  });
+
+  it("shows the thinking indicator until the reply arrives", async () => {
+    let finish: (state: GameState) => void = () => undefined;
+    const reply = game({ moves: ["e4", "e5"] });
+    const { api } = fakeApi(game(), { playMove: () => new Promise((resolve) => (finish = resolve)) });
+    render(<PlayBoard gameId={1} api={api} />);
+    await userEvent.click(await screen.findByText("drop e2e4"));
+    expect(await screen.findByText("Opponent is thinking…")).toBeInTheDocument();
+    finish(reply);
+    await waitFor(() => expect(screen.queryByText("Opponent is thinking…")).not.toBeInTheDocument());
+    expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent("e5");
+  });
+
+  it("sends a promotion move with the chosen piece", async () => {
+    const playMove = vi.fn(async () => game());
+    const { api } = fakeApi(game(), { playMove });
+    render(<PlayBoard gameId={1} api={api} />);
+    await userEvent.click(await screen.findByText("drop a7a8"));
+    const picker = await screen.findByRole("dialog", { name: "Promote your pawn" });
+    expect(playMove).not.toHaveBeenCalled();
+    await userEvent.click(within(picker).getByRole("button", { name: /Knight/ }));
+    expect(playMove).toHaveBeenCalledWith(1, "a7a8n");
+  });
+
+  it("does not move when the promotion picker is dismissed", async () => {
+    const playMove = vi.fn(async () => game());
+    const { api } = fakeApi(game(), { playMove });
+    render(<PlayBoard gameId={1} api={api} />);
+    await userEvent.click(await screen.findByText("drop a7a8"));
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(playMove).not.toHaveBeenCalled();
+  });
+
+  it("shows the server's message on a 409 and keeps the game state", async () => {
+    const { api } = fakeApi(game({ moves: ["d4"] }), {
+      playMove: async () => {
+        throw new ApiError(409, "it is not your turn");
+      },
+    });
+    render(<PlayBoard gameId={1} api={api} />);
+    await userEvent.click(await screen.findByText("drop e2e4"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("it is not your turn");
+    expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent("d4");
+    expect(screen.getByTestId("locked")).toHaveTextContent("open");
+  });
+
+  it("applies opponent moves and game over from the stream", async () => {
+    let current = game();
+    const { api, stream } = fakeApi(game(), { getGame: async () => current });
+    render(<PlayBoard gameId={1} api={api} />);
+    await screen.findByTestId("board");
+    current = game({ moves: ["e4", "e5"] });
+    stream()?.onOpponentMove({ uci: "e7e5", san: "e5", fen: "" });
+    await waitFor(() => expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent("e5"));
+    current = game({ moves: ["e4", "e5"], status: "finished", result: "0-1", legal_moves: [] });
+    stream()?.onGameOver({ result: "0-1", reason: "checkmate" });
+    expect(await screen.findByRole("dialog", { name: "You lost" })).toHaveTextContent("by checkmate");
+  });
+
+  it("resigns after confirmation and opens the game-over dialog", async () => {
+    const { api } = fakeApi(game());
+    render(<PlayBoard gameId={1} api={api} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Resign" }));
+    await userEvent.click(screen.getByRole("button", { name: "Confirm resign" }));
+    expect(await screen.findByRole("dialog", { name: "You lost" })).toBeInTheDocument();
+  });
+
+  it("reports a network failure without losing state", async () => {
+    const { api } = fakeApi(game(), {
+      playMove: async () => {
+        throw new TypeError("failed to fetch");
+      },
+    });
+    render(<PlayBoard gameId={1} api={api} />);
+    await userEvent.click(await screen.findByText("drop e2e4"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not reach the game server");
+  });
+});
+
+describe("PlayBoard connection handling", () => {
+  it("shows the load error with Retry instead of loading forever", async () => {
+    let attempts = 0;
+    const { api } = fakeApi(game(), {
+      getGame: async () => {
+        if (attempts++ === 0) throw new ApiError(404, "game not found");
+        return game();
+      },
+    });
+    render(<PlayBoard gameId={1} api={api} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("game not found");
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByTestId("board")).toBeInTheDocument();
+  });
+
+  it("shows a reconnecting status until the next event", async () => {
+    const { api, stream } = fakeApi(game());
+    render(<PlayBoard gameId={1} api={api} />);
+    await screen.findByTestId("board");
+    act(() => stream()?.onConnectionLost());
+    expect(screen.getByText("Connection lost, reconnecting…")).toBeInTheDocument();
+    act(() => stream()?.onSnapshot({ fen: START_FEN, status: "active" }));
+    expect(screen.queryByText("Connection lost, reconnecting…")).not.toBeInTheDocument();
+  });
+
+  it("ignores malformed stream events", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(parseStreamEvent("{not json")).toBeNull();
+    expect(parseStreamEvent<{ a: number }>('{"a":1}')).toEqual({ a: 1 });
+  });
+});
+
+describe("GameOverDialog", () => {
+  it.each([
+    ["1-0", "white", "You won!"],
+    ["1-0", "black", "You lost"],
+    ["1/2-1/2", "white", "Draw"],
+  ] as const)("titles %s for %s as %s and shows the reason", (result, color, title) => {
+    render(<GameOverDialog open result={result} reason="threefold_repetition" playerColor={color} onClose={() => undefined} />);
+    expect(screen.getByRole("dialog", { name: title })).toHaveTextContent("by threefold repetition");
+  });
+
+  it("omits the reason when unknown", () => {
+    render(<GameOverDialog open result="1-0" playerColor="white" onClose={() => undefined} />);
+    expect(screen.getByRole("dialog")).not.toHaveTextContent(" by ");
+  });
+});
+
+describe("MoveList", () => {
+  it("pairs white and black moves per row", () => {
+    render(<MoveList moves={["e4", "e5", "Nf3"]} />);
+    const list = screen.getByRole("list", { name: "Moves" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(2);
+    expect(list).toHaveTextContent("2.Nf3");
+  });
+
+  it("says so when empty", () => {
+    render(<MoveList moves={[]} />);
+    expect(screen.getByText("No moves yet.")).toBeInTheDocument();
+  });
+});
+
+describe("board helpers", () => {
+  it("groups destinations by origin square", () => {
+    expect(destinationsFrom(["e2e3", "e2e4", "g1f3"]).get("e2")).toEqual(["e3", "e4"]);
+  });
+
+  it("detects promotion only for five-character moves", () => {
+    expect(isPromotion(["a7a8q"], "a7", "a8")).toBe(true);
+    expect(isPromotion(["a2a3"], "a2", "a3")).toBe(false);
+  });
+
+  it("finds the last move squares from SAN", () => {
+    expect(lastMoveSquares(["e4", "e5", "Nf3"])).toEqual(["g1", "f3"]);
+    expect(lastMoveSquares([])).toBeUndefined();
+  });
+
+  it("describes results from the player's side", () => {
+    expect(describeResult("0-1", "black")).toBe("won");
+  });
+});

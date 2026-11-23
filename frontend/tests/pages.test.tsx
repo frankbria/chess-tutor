@@ -24,9 +24,16 @@ describe("route placeholders", () => {
 
   it("play shows the game id", async () => {
     const html = await prerenderToHtml(
-      <PlayPage params={Promise.resolve({ id: "game-42" })} searchParams={Promise.resolve({})} />,
+      <PlayPage params={Promise.resolve({ id: "42" })} searchParams={Promise.resolve({})} />,
     );
-    expect(html).toMatch(/<h1[^>]*>Game <!-- -->game-42<\/h1>/);
+    expect(html).toMatch(/<h1[^>]*>Game <!-- -->42<\/h1>/);
+  });
+
+  it("play rejects a non-numeric id with notFound", async () => {
+    const html = await prerenderToHtml(
+      <PlayPage params={Promise.resolve({ id: "abc" })} searchParams={Promise.resolve({})} />,
+    );
+    expect(html).toContain("NEXT_HTTP_ERROR_FALLBACK;404");
   });
 
   it("review shows the game id", async () => {
