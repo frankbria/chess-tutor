@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     backend_port: int = 8000
     frontend_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
-    database_path: Path = Path("data/chess_tutor.db")
+    database_path: Path = REPOSITORY_ROOT / "data" / "chess_tutor.db"
     stockfish_path: str = "/usr/games/stockfish"
     maia_model: str = "maia-3"
     maia_device: str = "cpu"

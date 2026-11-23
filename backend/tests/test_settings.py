@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from chess_tutor.settings import Settings
+from chess_tutor.settings import REPOSITORY_ROOT, Settings
 
 
 @pytest.fixture(autouse=True)
@@ -53,6 +53,6 @@ def test_defaults_match_the_spec() -> None:
     assert settings.stockfish_path == "/usr/games/stockfish"
     assert settings.coaching_model == "claude-sonnet-5-5"
     assert settings.cheap_model == "claude-haiku-5-5"
-    assert settings.database_path == Path("data/chess_tutor.db")
+    assert settings.database_path == REPOSITORY_ROOT / "data" / "chess_tutor.db"
     assert settings.thresholds.rating_weights.regular == 1.0
     assert settings.thresholds.tutor_stretch_offset == 100

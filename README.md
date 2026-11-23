@@ -26,7 +26,7 @@ make lint                # every package's lint, format and type checks
 | `CHESS_TUTOR_BACKEND_HOST` | `127.0.0.1` | Backend bind host |
 | `CHESS_TUTOR_FRONTEND_ORIGINS` | localhost/127.0.0.1 on `FRONTEND_PORT` | JSON list of CORS origins |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://127.0.0.1:<backend port>` | API URL the frontend calls |
-| `CHESS_TUTOR_DATABASE_PATH` | `data/chess_tutor.db` | SQLite file (`data/` is gitignored) |
+| `CHESS_TUTOR_DATABASE_PATH` | `<repo>/data/chess_tutor.db` | SQLite file (`data/` is gitignored) |
 | `CHESS_TUTOR_STOCKFISH_PATH` | `/usr/games/stockfish` | Stockfish binary |
 | `CHESS_TUTOR_MAIA_MODEL` / `CHESS_TUTOR_MAIA_DEVICE` | `maia-3` / `cpu` | Maia model and device |
 | `CHESS_TUTOR_LLM_PROVIDER` | `anthropic` | `anthropic`, or `none` for no coach |
