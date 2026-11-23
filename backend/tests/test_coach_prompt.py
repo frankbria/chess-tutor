@@ -4,6 +4,7 @@ from pathlib import Path
 import anthropic
 import chess
 import pytest
+from pydantic import ValidationError
 from scripted_language_model import ScriptedLanguageModel
 
 from chess_tutor.analysis.move_delta import move_delta
@@ -46,6 +47,16 @@ def fork_context(**overrides: object) -> CoachContext:
     return CoachContext.model_validate(values | overrides)
 
 
+def assembled_request(context: CoachContext) -> dict[str, object]:
+    system, messages = build_coach_request(context)
+    return {
+        "system": system,
+        "messages": [
+            {"role": message.role, "content": json.loads(message.content)} for message in messages
+        ],
+    }
+
+
 def everything_sent(context: CoachContext) -> str:
     system, messages = build_coach_request(context)
     return system + "".join(message.content for message in messages)
@@ -62,7 +73,7 @@ def test_pre_lock_in_request_never_contains_the_best_move() -> None:
     assert packet_has_it  # the fixture really would leak without the filter
     assert "Nc7" not in sent
     assert "Nxa8" not in sent
-    assert "best_move" not in sent
+    assert '"best_move"' not in sent
 
 
 def test_after_lock_in_the_best_move_and_its_facts_are_sent() -> None:
@@ -84,6 +95,54 @@ def test_a_fact_summary_naming_the_best_move_is_dropped_too() -> None:
     assert "x:1" not in everything_sent(context)
 
 
+def leaky_fact_context(**fact_fields: object) -> CoachContext:
+    packet = build_fact_packet(chess.Board(FORK_ON_C7))
+    fact = packet.facts[0].model_copy(update={"id": "leaky:1", "san_lines": []} | fact_fields)
+    return fork_context(
+        fact_packet=FactPacket(fen=packet.fen, side_to_move=packet.side_to_move, facts=[fact])
+    )
+
+
+@pytest.mark.parametrize(
+    "fact_fields",
+    [
+        {"san_lines": [["Kd7", "Nc7"]]},  # not the first move of the line
+        {"san_lines": [["Kd7"], ["Ke7", "Nc7#"]]},  # another line, other suffix
+        {"summary": "Nc7—it forks the king and rook"},
+        {"summary": "the fork (Nc7+) wins a rook"},
+        {"summary": "play Nc7, then"},
+    ],
+)
+def test_facts_naming_the_best_move_anywhere_are_dropped(fact_fields: dict[str, object]) -> None:
+    assert "leaky:1" not in everything_sent(leaky_fact_context(**fact_fields))
+
+
+def test_a_similar_looking_summary_is_kept() -> None:
+    sent = everything_sent(
+        leaky_fact_context(summary="the Nc70 square, Nc7x and ANc7 are not moves")
+    )
+
+    assert "leaky:1" in sent
+
+
+def test_questions_pre_lock_in_carry_the_hint_level() -> None:
+    context = fork_context(event=CoachEvent.ANSWER_QUESTION, player_message="why is that bad?")
+    _, messages = build_coach_request(context)
+    payload = json.loads(messages[0].content)
+
+    assert payload["hint_level"] == 2
+    assert payload["locked_in"] is False
+    assert "best_move" not in payload
+    assert "follow the hint level rules" in SYSTEM_PROMPT
+
+
+def test_the_lock_in_flag_is_required() -> None:
+    with pytest.raises(ValidationError):
+        CoachContext.model_validate(
+            fork_context().model_dump(mode="json", exclude={"active_pre_lock_in"})
+        )
+
+
 def test_system_prompt_is_identical_for_every_context() -> None:
     systems = {
         build_coach_request(context)[0]
@@ -98,10 +157,7 @@ def test_system_prompt_is_identical_for_every_context() -> None:
 
 
 def test_request_matches_the_checked_in_snapshot() -> None:
-    _, messages = build_coach_request(fork_context())
-
-    assert len(messages) == 1
-    assert json.loads(messages[0].content) == json.loads(SNAPSHOT.read_text())
+    assert assembled_request(fork_context()) == json.loads(SNAPSHOT.read_text())
 
 
 def test_only_the_last_few_recent_messages_are_sent() -> None:
