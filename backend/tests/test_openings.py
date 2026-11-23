@@ -4,7 +4,7 @@ import chess
 import pytest
 
 from chess_tutor.openings import PHASE_FOCUS, GamePhase, Opening, detect_phase, lookup_opening
-from chess_tutor.openings.book import opening_index
+from chess_tutor.openings.book import is_on_book_line, opening_index
 from chess_tutor.settings import PhaseThresholds
 
 THRESHOLDS = PhaseThresholds()
@@ -134,3 +134,12 @@ def test_in_book_position_is_opening_even_when_developed() -> None:
 def test_empty_book_directory_fails_loudly(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="book data is missing"):
         opening_index(tmp_path)
+
+
+def test_book_line_includes_intermediate_positions() -> None:
+    board = chess.Board()
+    for san in ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Ba4"]:
+        board.push_san(san)
+    assert is_on_book_line(board)
+    board.push_san("Qh4")
+    assert not is_on_book_line(board)
