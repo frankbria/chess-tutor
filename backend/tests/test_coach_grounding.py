@@ -46,6 +46,7 @@ def context_for(**overrides: object) -> CoachContext:
         "fact_packet": build_fact_packet(chess.Board(FORK_ON_C7)),
         "best_move_san": "Nc7+",
         "best_line": ["Nc7+", "Kd7", "Nxa8"],
+        "active_pre_lock_in": False,
     }
     return CoachContext.model_validate(values | overrides)
 
@@ -136,24 +137,15 @@ def test_after_lock_in_the_best_move_and_line_are_citable() -> None:
     assert validate_reply(reply("Nc7+, Kd7 and Nxa8 wins the rook."), context_for()) == []
 
 
-def test_the_best_move_is_rejected_before_lock_in_even_in_a_visible_fact() -> None:
-    deeper = Fact(
-        id="deep", type=FactType.ALLOWS, side=Side.BLACK, summary="x", san_lines=[["Kd7", "Nc7+"]]
+def test_the_best_move_is_rejected_before_lock_in() -> None:
+    harmless = Fact(
+        id="harmless", type=FactType.ALLOWS, side=Side.BLACK, summary="x", san_lines=[["Kd7"]]
     )
-    context = with_facts(deeper, active_pre_lock_in=True)
+    context = with_facts(harmless, active_pre_lock_in=True)
 
-    assert kinds(reply("Kd7, then Nc7+ is the move.", "deep"), context) == {
-        GroundingErrorKind.BEST_MOVE_LEAK
-    }
-    assert GroundingErrorKind.UNKNOWN_FACT in kinds(reply("Hmm.", FORK), context)
-    assert validate_reply(reply("Nc7+ is the move.", "deep"), context)  # still leaks without a mark
-    assert (
-        validate_reply(
-            reply("Nc7+ is the move.", "deep"),
-            context.model_copy(update={"active_pre_lock_in": False}),
-        )
-        == []
-    )
+    assert GroundingErrorKind.BEST_MOVE_LEAK in kinds(reply("Kd7, then Nc7+.", "harmless"), context)
+    assert GroundingErrorKind.UNKNOWN_FACT in kinds(reply("Hmm.", FORK), context)  # filtered out
+    assert validate_reply(reply("Kd7 is possible.", "harmless"), context) == []
 
 
 @pytest.mark.parametrize("fact_type", list(FactType))
@@ -365,6 +357,7 @@ async def test_real_coach_first_attempt_pass_rate_on_three_positions() -> None:
                 move_delta_facts=delta.facts,
                 best_move_san=delta.best_move_san,
                 best_line=delta.best_line,
+                active_pre_lock_in=False,
             )
             for _ in range(REAL_RUNS_PER_POSITION):
                 grounded = await coach_reply_with_grounding(model, context)
