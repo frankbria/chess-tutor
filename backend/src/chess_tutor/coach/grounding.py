@@ -103,6 +103,8 @@ class GroundedReply:
     fact_ids: list[str]
     source: ReplySource
     usages: tuple[Usage, ...]  # every billed attempt, including rejected ones
+    first_attempt_errors: tuple[GroundingError, ...] = ()
+    first_attempt_text: str = ""  # what the model said before it was rejected
 
     @property
     def cost(self) -> float:
@@ -131,28 +133,38 @@ def _start_positions(context: CoachContext) -> Iterator[chess.Board]:
         yield skipped.copy(stack=False)
 
 
-def _replayable(line: list[str], start: chess.Board) -> bool:
+def _replay(line: list[str], start: chess.Board) -> list[chess.Move] | None:
     board = start.copy(stack=False)
+    moves = []
     try:
         for san in line:
-            board.push_san(san)
+            moves.append(board.push_san(san))
     except ValueError:
-        return False
-    return True
+        return None
+    return moves
 
 
-def _verified_sans(cited: list[Fact], context: CoachContext) -> set[str]:
+def _verified_references(cited: list[Fact], context: CoachContext) -> tuple[set[str], set[str]]:
+    """The SANs and the squares those verified moves touch (from and to)."""
     starts = list(_start_positions(context))
-    verified = {_plain(context.move_san)}
+    lines = [[context.move_san]]
     if not context.active_pre_lock_in:  # the prompt makes best_move/best_line citable once shown
-        verified.update(_plain(san) for san in context.best_line)
-        if context.best_move_san:
-            verified.add(_plain(context.best_move_san))
-    for fact in cited:
-        for line in fact.san_lines:
-            if any(_replayable(line, start) for start in starts):
-                verified.update(_plain(san) for san in line)
-    return verified
+        lines += [context.best_line, [context.best_move_san] if context.best_move_san else []]
+    lines += [line for fact in cited for line in fact.san_lines]
+    sans: set[str] = set()
+    squares: set[str] = set()
+    for line in lines:
+        for start in starts:
+            moves = _replay(line, start)
+            if moves is not None:
+                sans.update(_plain(san) for san in line)
+                squares.update(
+                    chess.square_name(square)
+                    for move in moves
+                    for square in (move.from_square, move.to_square)
+                )
+                break
+    return sans, squares
 
 
 def _cited_squares(cited: list[Fact]) -> set[str]:
@@ -195,7 +207,7 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
                 )
             )
 
-    verified = _verified_sans(cited, context)
+    verified, move_squares = _verified_references(cited, context)
     for move in mentioned_moves:
         if _plain(move) not in verified:
             errors.append(
@@ -206,7 +218,7 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
                 )
             )
 
-    squares = _cited_squares(cited)
+    squares = _cited_squares(cited) | move_squares
     for square in dict.fromkeys(_SQUARE_TOKEN.findall(bare_text)):
         if square not in squares and square not in verified:
             errors.append(
@@ -277,6 +289,8 @@ def _feedback(errors: list[GroundingError]) -> str:
 async def coach_reply_with_grounding(model: LanguageModel, context: CoachContext) -> GroundedReply:
     """Generate, validate, regenerate once with the errors as feedback, else use the template."""
     usages: list[Usage] = []
+    first_errors: tuple[GroundingError, ...] = ()
+    first_text = ""
     try:
         first = await generate_coach_reply(model, context)
         usages.append(first.usage)
@@ -285,6 +299,7 @@ async def coach_reply_with_grounding(model: LanguageModel, context: CoachContext
             return GroundedReply(
                 first.parsed.text, first.parsed.fact_ids, ReplySource.LLM, tuple(usages)
             )
+        first_errors, first_text = tuple(errors), first.parsed.text
         system, messages = build_coach_request(context)
         second = await model.structured(
             tier=ModelTier.COACHING,
@@ -303,9 +318,13 @@ async def coach_reply_with_grounding(model: LanguageModel, context: CoachContext
                 second.parsed.fact_ids,
                 ReplySource.LLM_REGENERATED,
                 tuple(usages),
+                first_errors,
+                first_text,
             )
     except LanguageModelError as error:
         if error.usage is not None:
             usages.append(error.usage)
     fallback = template_reply(context)
-    return GroundedReply(fallback.text, fallback.fact_ids, ReplySource.TEMPLATE, tuple(usages))
+    return GroundedReply(
+        fallback.text, fallback.fact_ids, ReplySource.TEMPLATE, tuple(usages), first_errors
+    )

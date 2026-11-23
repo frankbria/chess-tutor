@@ -22,11 +22,12 @@ You are a chess coach inside a tutoring app. Your student is an adult playing at
 rating. Be warm, brief and encouraging, in plain words with little jargon. Replies are at most \
 about 60 words unless the student asked a question that needs more.
 
-Each request arrives as a JSON context. You may name a concrete square, piece or move only if it \
-appears in the context's facts, is the move under discussion (`move`), or, when present, is the \
-`best_move` or `best_line`. Everything else is off limits. Every fact you rely on must have its \
-id in `fact_ids`. Never invent chess facts. General advice with no concrete square or move \
-("develop your pieces", "check what your opponent threatens") needs no fact.
+Each request arrives as a JSON context. You may name a concrete square, piece or move only if \
+it is listed in `allowed_references` (the squares and moves of the facts, plus `move` and, when \
+present, `best_move` and `best_line`). Everything else is off limits, even if it is true on the \
+board. Every fact you rely on must have its id in `fact_ids`, including the fact that supplies \
+each square or move you name. Never invent chess facts. General advice with no concrete square \
+or move ("develop your pieces", "check what your opponent threatens") needs no fact.
 
 Fit your reply to `event`:
 - comment_on_move: say what matters about `move`, using the facts. If it was fine, say so in a \
@@ -108,7 +109,21 @@ def visible_facts(context: CoachContext) -> list[Fact]:
     return facts
 
 
+def _allowed_references(context: CoachContext, facts: list[Fact]) -> dict[str, list[str]]:
+    squares = {
+        square for fact in facts for square in [*fact.squares, *(p.square for p in fact.pieces)]
+    }
+    moves = [
+        context.move_san,
+        *(move for fact in facts for line in fact.san_lines for move in line),
+    ]
+    if not context.active_pre_lock_in:
+        moves += [*context.best_line, *([context.best_move_san] if context.best_move_san else [])]
+    return {"squares": sorted(squares), "moves": list(dict.fromkeys(moves))}
+
+
 def _context_payload(context: CoachContext) -> dict[str, object]:
+    facts = visible_facts(context)
     payload: dict[str, object] = {
         "mode": context.mode.value,
         "event": context.event.value,
@@ -117,9 +132,8 @@ def _context_payload(context: CoachContext) -> dict[str, object]:
         "move": context.move_san,
         "fen": context.fact_packet.fen,
         "side_to_move": context.fact_packet.side_to_move.value,
-        "facts": [
-            fact.model_dump(mode="json", exclude_defaults=True) for fact in visible_facts(context)
-        ],
+        "facts": [fact.model_dump(mode="json", exclude_defaults=True) for fact in facts],
+        "allowed_references": _allowed_references(context, facts),
         "locked_in": not context.active_pre_lock_in,
     }
     if not context.active_pre_lock_in:  # pre-lock-in the best move is removed, not hidden

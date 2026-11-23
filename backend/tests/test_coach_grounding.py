@@ -83,6 +83,52 @@ def test_general_language_with_no_move_or_square_passes() -> None:
     )
 
 
+ALLOWS_FORK = Fact(
+    id="allows:b4c2",
+    type=FactType.ALLOWS,
+    side=Side.BLACK,
+    summary="the move allows Nc2+",
+    squares=["b4"],
+    pieces=[PieceRef(color=Side.BLACK, piece_type="knight", square="b4")],
+    san_lines=[["Kd7", "Nb6+", "Kc7"]],
+)
+
+
+def test_squares_a_verified_line_moves_to_or_from_are_grounded() -> None:
+    context = with_facts(ALLOWS_FORK, **NO_BEST)
+
+    text = "After Kd7 the knight can reach b6 with check, and the king ends on c7 from d7."
+
+    assert validate_reply(reply(text, "allows:b4c2"), context) == []
+    assert GroundingErrorKind.UNCITED_SQUARE in kinds(reply("Watch h6.", "allows:b4c2"), context)
+
+
+def test_check_marks_and_plural_piece_names_are_not_false_positives() -> None:
+    context = with_facts(ALLOWS_FORK, **NO_BEST)
+
+    text = "Kd7+ then Nb6 and the knights on b4 or b6 are busy; you may castle too, or O-O."
+
+    assert kinds(reply(text, "allows:b4c2"), context) == {GroundingErrorKind.UNVERIFIED_MOVE}
+    assert (
+        validate_reply(
+            reply(text.replace("; you may castle too, or O-O", ""), "allows:b4c2"), context
+        )
+        == []
+    )
+
+
+def test_ordinary_prose_with_move_like_words_passes() -> None:
+    text = "A solid plan: Be careful, Re-think, and Keep the king safe; a1 b2 are not mentioned."
+
+    assert kinds(reply(text), context_for()) == {GroundingErrorKind.UNCITED_SQUARE}
+    assert (
+        validate_reply(
+            reply("Be careful. Re-think it. Rest a bit, then Keep going."), context_for()
+        )
+        == []
+    )
+
+
 def test_the_move_being_commented_on_needs_no_fact() -> None:
     assert (
         validate_reply(reply("Kf2 is a calm move, but keep looking around."), context_for()) == []
@@ -108,14 +154,18 @@ def test_an_uncited_claim_is_rejected() -> None:
     assert GroundingErrorKind.UNVERIFIED_MOVE in kinds(
         reply("Nc7+ forks two pieces."), context_for(**NO_BEST)
     )
-    assert GroundingErrorKind.UNCITED_SQUARE in kinds(reply("Watch the rook on a8."), context_for())
+    assert GroundingErrorKind.UNCITED_SQUARE in kinds(
+        reply("Watch the rook on a8."), context_for(**NO_BEST)
+    )
 
 
 def test_a_square_from_a_fact_that_was_not_cited_is_rejected() -> None:
     text = "Your king on e1 is a long way from the centre."
 
-    assert GroundingErrorKind.UNCITED_SQUARE in kinds(reply(text, FORK), context_for())
-    assert validate_reply(reply(text, "activity:white:passive_king"), context_for()) == []
+    context = context_for(move_san="Nb4", **NO_BEST)
+
+    assert GroundingErrorKind.UNCITED_SQUARE in kinds(reply(text, FORK), context)
+    assert validate_reply(reply(text, "activity:white:passive_king"), context) == []
 
 
 def test_an_unknown_fact_id_is_rejected() -> None:
@@ -328,10 +378,11 @@ async def test_an_error_without_usage_records_none() -> None:
     assert (result.source, result.usages) == (ReplySource.TEMPLATE, ())
 
 
-KNIGHT_FORK_ALLOWED = ("r3k3/8/8/3N4/8/8/8/4K3 b - - 0 1", "Kd7")
+KNIGHT_FORK_ALLOWED = ("3qk2r/pp3ppp/8/8/1n6/8/PP3PPP/R2QK1N1 w - - 0 1", "Qg4")
+LONE_KING_MOVE = ("r3k3/8/8/3N4/8/8/8/4K3 b - - 0 1", "Kd7")
 IGNORED_THREAT = ("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2", "a6")
 QUIET_GOOD_MOVE = ("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2", "Nf3")
-REAL_RUNS_PER_POSITION = 2
+REAL_RUNS_PER_POSITION = 3
 
 
 @pytest.mark.llm
@@ -345,7 +396,7 @@ async def test_real_coach_first_attempt_pass_rate_on_three_positions() -> None:
     model = AnthropicLanguageModel(settings)
     results: list[GroundedReply] = []
     async with StockfishPool(settings.stockfish_path, 1) as pool:
-        for fen, san in (KNIGHT_FORK_ALLOWED, IGNORED_THREAT, QUIET_GOOD_MOVE):
+        for fen, san in (KNIGHT_FORK_ALLOWED, IGNORED_THREAT, QUIET_GOOD_MOVE, LONE_KING_MOVE):
             board = chess.Board(fen)
             delta = await move_delta(board, board.parse_san(san), pool)
             context = CoachContext(
@@ -363,6 +414,10 @@ async def test_real_coach_first_attempt_pass_rate_on_three_positions() -> None:
                 grounded = await coach_reply_with_grounding(model, context)
                 results.append(grounded)
                 print(f"[{san}] {grounded.source.value}: {grounded.text} {grounded.fact_ids}")
+                if grounded.first_attempt_errors:
+                    print(f"    FIRST ATTEMPT TEXT: {grounded.first_attempt_text}")
+                for error in grounded.first_attempt_errors:
+                    print(f"    FIRST-ATTEMPT ERROR {error.kind.value}: {error.message}")
                 assert not validate_reply(
                     CoachReply(text=grounded.text, fact_ids=grounded.fact_ids), context
                 )
