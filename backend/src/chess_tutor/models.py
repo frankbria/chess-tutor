@@ -146,6 +146,28 @@ class RatingHistory(Base):
     )
 
 
+class ConceptStatus(StrEnum):
+    NEW = "new"
+    RECURRING = "recurring"
+    FOCUS = "focus"
+    IMPROVING = "improving"
+    MASTERED = "mastered"
+
+
+class ConceptState(Base):
+    __tablename__ = "concept_state"
+
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id"), primary_key=True)
+    concept: Mapped[str] = mapped_column(primary_key=True)
+    state: Mapped[ConceptStatus] = mapped_column(string_enum(ConceptStatus))
+    count: Mapped[int]  # games in which the concept occurred
+    recency_score: Mapped[float]
+    last_seen_game_id: Mapped[int | None] = mapped_column(ForeignKey("game.id"), default=None)
+    games_since_last_seen: Mapped[int]  # the current clean streak
+    last_processed_game_id: Mapped[int]  # makes refreshing a finished game idempotent
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class ConceptEvent(Base):
     __tablename__ = "concept_event"
 

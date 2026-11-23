@@ -28,9 +28,13 @@ class PhaseThresholds(BaseModel):
 
 
 class ConceptStateThresholds(BaseModel):
-    recurring_after: int = 2
+    recurring_after: int = 2  # games with the concept
+    recurring_min_score: float = 1.3  # ...and the recency score must still be at least this
     focus_after: int = 4
+    focus_min_score: float = 2.5  # the score reached by about four games in a row
+    improving_after_clean_games: int = 3
     mastered_after_clean_games: int = 10
+    recency_decay: float = Field(default=0.8, gt=0, lt=1)  # score multiplier per finished game
 
 
 class RatingWeights(BaseModel):

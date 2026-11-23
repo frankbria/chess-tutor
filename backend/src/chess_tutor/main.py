@@ -12,13 +12,14 @@ from sqlalchemy.orm import Session
 from chess_tutor.api.events import GameEvents
 from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
+from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
 from chess_tutor.engines.human_moves import HumanMovePredictor
 from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.routing import build_opponent
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.service import GameService
-from chess_tutor.models import Game, Player, RatingHistory
+from chess_tutor.models import ConceptState, ConceptStatus, Game, Player, RatingHistory
 from chess_tutor.openings.book import opening_index
 from chess_tutor.settings import Settings
 
@@ -42,6 +43,24 @@ class RatingHistoryResponse(BaseModel):
     created_at: datetime
     accuracy: float | None
     performance_rating: float | None
+
+
+class ConceptStateResponse(BaseModel):
+    concept: str
+    label: str
+    state: ConceptStatus
+    count: int
+    recency_score: float
+    practice_themes: list[str]
+
+
+CONCEPT_STATE_ORDER = (
+    ConceptStatus.FOCUS,
+    ConceptStatus.RECURRING,
+    ConceptStatus.IMPROVING,
+    ConceptStatus.NEW,
+    ConceptStatus.MASTERED,
+)
 
 
 def create_app(settings: Settings | None = None, opponent: OpponentEngine | None = None) -> FastAPI:
@@ -126,5 +145,30 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
                 )
                 for history, game in rows
             ]
+
+    @app.get("/player/concepts", response_model=list[ConceptStateResponse])
+    def get_concepts(request: Request) -> list[ConceptStateResponse]:
+        with Session(request.app.state.engine) as session:
+            player = session.scalars(select(Player).order_by(Player.id).limit(1)).one()
+            rows = session.scalars(
+                select(ConceptState).where(ConceptState.player_id == player.id)
+            ).all()
+        rows = sorted(
+            rows, key=lambda row: (CONCEPT_STATE_ORDER.index(row.state), -row.recency_score)
+        )
+        known = {concept.value for concept in CONCEPTS}
+        # A concept retired from the taxonomy keeps its stored rows; skip them, don't fail the list.
+        return [
+            ConceptStateResponse(
+                concept=row.concept,
+                label=CONCEPTS[Concept(row.concept)].label,
+                state=row.state,
+                count=row.count,
+                recency_score=row.recency_score,
+                practice_themes=list(CONCEPTS[Concept(row.concept)].practice_themes),
+            )
+            for row in rows
+            if row.concept in known
+        ]
 
     return app
