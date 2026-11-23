@@ -9,6 +9,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.engines.opponent import OpponentEngine
+from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.models import (
     Game,
     GameMode,
@@ -72,9 +73,12 @@ def chess_color(color: PlayerColor) -> chess.Color:
 
 
 class GameService:
-    def __init__(self, engine: Engine, opponent: OpponentEngine) -> None:
+    def __init__(
+        self, engine: Engine, opponent: OpponentEngine, pacing: OpponentPacing | None = None
+    ) -> None:
         self._engine = engine
         self._opponent = opponent
+        self._pacing = pacing
         # Serialises moves so a double-submitted move can't race past the turn check.
         self._move_lock = asyncio.Lock()
 
@@ -115,12 +119,24 @@ class GameService:
                 move = self._parse_legal_move(board, uci)
                 self._push(session, game, board, move)
                 session.commit()
-            return await self._reply(game_id)
+        return await self.play_opponent_move(game_id)
 
     async def play_opponent_move(self, game_id: int) -> Game:
         """Play the opponent's move if it is due; call again after an OpponentUnavailableError."""
+        await self._think(game_id)
         async with self._move_lock:
             return await self._reply(game_id)
+
+    async def _think(self, game_id: int) -> None:
+        """Humanised wait outside the lock; _reply re-reads the game so a resign meanwhile wins."""
+        if self._pacing is None:
+            return
+        with Session(self._engine, expire_on_commit=False) as session:
+            game = self._get(session, game_id)
+            board = self._board(session, game_id)
+            if game.status is not GameStatus.ACTIVE or board.turn == chess_color(game.player_color):
+                return
+        await self._pacing.pause(board, game.opponent_elo)
 
     async def _reply(self, game_id: int) -> Game:
         with Session(self._engine, expire_on_commit=False) as session:

@@ -1,5 +1,6 @@
 import asyncio
 import io
+import random
 from collections.abc import Iterator
 
 import chess
@@ -11,6 +12,8 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
+from chess_tutor.engines.human_moves import HumanMovePrediction, HumanMovePredictionError
+from chess_tutor.engines.think_time import HumanMoveSource, OpponentPacing
 from chess_tutor.games.service import (
     ColorChoice,
     GameNotActiveError,
@@ -244,6 +247,156 @@ async def test_real_maia_replies_and_opens_as_white(settings: Settings, engine: 
         as_white = await service.create_game(PLAYER_ID, 1100, ColorChoice.WHITE)
         await service.play_move(as_white.id, "e2e4")
         assert len(service.get_board(as_white.id).move_stack) == 2
+
+
+class RecordingSleeper:
+    def __init__(self) -> None:
+        self.delays: list[float] = []
+
+    async def __call__(self, seconds: float) -> None:
+        self.delays.append(seconds)
+
+
+class FixedProbabilityPredictor:
+    """Implements our own HumanMoveSource protocol with a fixed top probability."""
+
+    def __init__(self, top_probability: float) -> None:
+        self._top_probability = top_probability
+
+    async def predict_human_moves(
+        self, board: chess.Board, elo: int, k: int
+    ) -> list[HumanMovePrediction]:
+        return [HumanMovePrediction(next(iter(board.legal_moves)), self._top_probability)]
+
+
+class BrokenPredictor:
+    async def predict_human_moves(
+        self, board: chess.Board, elo: int, k: int
+    ) -> list[HumanMovePrediction]:
+        raise HumanMovePredictionError("helper died")
+
+
+def paced_service(
+    engine: Engine, settings: Settings, predictor: HumanMoveSource | None, sleeper: RecordingSleeper
+) -> GameService:
+    bounds = settings.model_copy(
+        update={"opponent_min_think_seconds": 1.0, "opponent_max_think_seconds": 5.0}
+    )
+    pacing = OpponentPacing(bounds, predictor, sleeper, random.Random(0))
+    return GameService(engine, ScriptedOpponent("e5"), pacing)
+
+
+async def test_opponent_waits_the_computed_think_time_before_replying(
+    engine: Engine, settings: Settings
+) -> None:
+    sleeper = RecordingSleeper()
+    service = paced_service(engine, settings, FixedProbabilityPredictor(0.15), sleeper)
+    game = await service.create_game(PLAYER_ID, 800, ColorChoice.WHITE)
+
+    await service.play_move(game.id, "e2e4")
+
+    assert len(sleeper.delays) == 1
+    assert 4.5 <= sleeper.delays[0] <= 5.0
+    assert move_count(engine, game.id) == 2
+
+
+async def test_obvious_position_gets_a_short_delay(engine: Engine, settings: Settings) -> None:
+    sleeper = RecordingSleeper()
+    service = paced_service(engine, settings, FixedProbabilityPredictor(0.95), sleeper)
+    game = await service.create_game(PLAYER_ID, 800, ColorChoice.WHITE)
+
+    await service.play_move(game.id, "e2e4")
+
+    assert 1.0 <= sleeper.delays[0] <= 1.5
+
+
+@pytest.mark.parametrize("predictor", [None, BrokenPredictor()])
+async def test_missing_or_failing_predictor_falls_back_to_the_minimum_delay(
+    engine: Engine, settings: Settings, predictor: HumanMoveSource | None
+) -> None:
+    sleeper = RecordingSleeper()
+    service = paced_service(engine, settings, predictor, sleeper)
+    game = await service.create_game(PLAYER_ID, 800, ColorChoice.WHITE)
+
+    await service.play_move(game.id, "e2e4")
+
+    assert sleeper.delays == [1.0]
+    assert move_count(engine, game.id) == 2
+
+
+async def test_resign_during_the_think_time_keeps_the_game_finished(
+    engine: Engine, settings: Settings
+) -> None:
+    holder: list[GameService] = []
+
+    async def resigning_sleeper(seconds: float) -> None:
+        holder[0].resign(1)
+
+    service = GameService(
+        engine,
+        ScriptedOpponent("e5"),
+        OpponentPacing(settings, None, resigning_sleeper),
+    )
+    holder.append(service)
+    game = await service.create_game(PLAYER_ID, 800, ColorChoice.WHITE)
+
+    finished = await service.play_move(game.id, "e2e4")
+
+    assert finished.status is GameStatus.FINISHED
+    assert move_count(engine, game.id) == 1
+
+
+async def test_resign_is_not_blocked_while_the_opponent_thinks(
+    engine: Engine, settings: Settings
+) -> None:
+    resigned_while_thinking: list[bool] = []
+
+    async def probing_sleeper(seconds: float) -> None:
+        resigned_while_thinking.append(service._move_lock.locked())
+
+    service = GameService(
+        engine, ScriptedOpponent("e5"), OpponentPacing(settings, None, probing_sleeper)
+    )
+    game = await service.create_game(PLAYER_ID, 800, ColorChoice.WHITE)
+    await service.play_move(game.id, "e2e4")
+
+    assert resigned_while_thinking == [False]
+
+
+def test_predictor_is_only_started_when_maia_is_enabled(settings: Settings) -> None:
+    unrunnable = settings.model_copy(update={"maia_policy_command": "/nonexistent/helper"})
+
+    with TestClient(create_app(unrunnable, ScriptedOpponent())):
+        pass  # maia disabled: the unrunnable helper is never launched
+
+    with (
+        pytest.raises(HumanMovePredictionError),
+        TestClient(
+            create_app(unrunnable.model_copy(update={"maia_enabled": True}), ScriptedOpponent())
+        ),
+    ):
+        pass
+
+
+@pytest.mark.maia
+async def test_real_predictor_paces_a_real_game_without_delay(
+    settings: Settings, engine: Engine
+) -> None:
+    from chess_tutor.engines.human_moves import HumanMovePredictor
+    from chess_tutor.engines.opponent import Maia3Opponent
+
+    sleeper = RecordingSleeper()
+    async with (
+        Maia3Opponent.from_settings(settings) as maia,
+        HumanMovePredictor.from_settings(settings) as predictor,
+    ):
+        service = GameService(engine, maia, OpponentPacing(settings, predictor, sleeper))
+        game = await service.create_game(PLAYER_ID, 1100, ColorChoice.WHITE)
+        await service.play_move(game.id, "e2e4")
+
+    assert len(service.get_board(game.id).move_stack) == 2
+    assert len(sleeper.delays) == 1
+    assert sleeper.delays[0] == 0
 
 
 @pytest.mark.maia

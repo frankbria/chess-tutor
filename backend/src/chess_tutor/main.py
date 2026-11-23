@@ -12,7 +12,9 @@ from chess_tutor.api.events import GameEvents
 from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
+from chess_tutor.engines.human_moves import HumanMovePredictor
 from chess_tutor.engines.opponent import Maia3Opponent, OpponentEngine
+from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.service import GameService
 from chess_tutor.models import Player
 from chess_tutor.openings.book import opening_index
@@ -46,11 +48,24 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
             yield
             engine.dispose()
             return
-        await game_opponent.start()
-        app.state.game_service = GameService(engine, game_opponent)
+        predictor = HumanMovePredictor.from_settings(settings) if settings.maia_enabled else None
+        try:
+            await game_opponent.start()
+            if predictor is not None:
+                await predictor.start()
+        except Exception:
+            await game_opponent.close()
+            if predictor is not None:
+                await predictor.close()
+            engine.dispose()
+            raise
+        pacing = None if predictor is None else OpponentPacing(settings, predictor)
+        app.state.game_service = GameService(engine, game_opponent, pacing)
         try:
             yield
         finally:
+            if predictor is not None:
+                await predictor.close()
             await game_opponent.close()
             engine.dispose()
 
