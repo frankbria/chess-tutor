@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import BaseModel, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PLACEHOLDER_API_KEY = "replace-me"  # the value shipped in .env.example
@@ -55,6 +55,7 @@ class Settings(BaseSettings):
 
     database_path: Path = REPOSITORY_ROOT / "data" / "chess_tutor.db"
     stockfish_path: str = "/usr/games/stockfish"
+    stockfish_pool_size: int = Field(default=2, ge=1)
     maia_model: str = "maia-3"
     maia_device: str = "cpu"
 

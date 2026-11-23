@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.1",
+    "chess>=1.11.2",
     "fastapi>=0.165.0",
     "pydantic-settings>=2.16.3",
     "sqlalchemy>=2.1.9",
@@ -25,6 +26,7 @@ dev = [
     "httpx2>=2.16.2",
     "mypy>=2.4.1",
     "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
     "pytest-bdd>=9.0.1",
     "pytest-cov>=7.1.0",
     "ruff>=0.17.6",
@@ -32,6 +34,8 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=chess_tutor --cov-report=term-missing --cov-fail-under=85"
 
 [tool.ruff]
