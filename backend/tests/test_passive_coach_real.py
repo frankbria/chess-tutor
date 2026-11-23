@@ -1,3 +1,5 @@
+import json
+
 import anthropic
 import pytest
 from test_passive_coach import started
@@ -22,3 +24,5 @@ async def test_a_real_coach_comments_on_a_blunder(settings: Settings) -> None:
         [stored] = harness.comments()
         print(f"\nCOACH ({stored.source.value}, facts {stored.fact_ids}): {stored.text}")
         assert stored.ply == 7 and stored.text
+        fact_ids = json.loads(stored.fact_ids)
+        assert isinstance(fact_ids, list) and fact_ids

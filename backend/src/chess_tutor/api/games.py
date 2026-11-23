@@ -17,9 +17,10 @@ equal to the object's `type`:
 - `coach_comment` (Passive mode, when the coach is on): `{"type", "ply", "text", "classification",
   "fact_ids", "source"}`: the coach's comment on the player's move at `ply` (1-based, whole game),
   only for an Inaccuracy or worse and for Great/Brilliant moves. It is produced in a background
-  task so the opponent's reply is never delayed: expect it after `opponent_move`, and after
-  `game_over` (which closes the stream) when the player's move ended the game, in which case
-  it is only stored. `source` is `llm`, `llm_regenerated` or `template`.
+  task so the opponent's reply is never delayed: expect it after `opponent_move`. When the game ends
+  on the player's move or by resignation, `game_over` waits for the final comment (at most 30
+  seconds), so the comment comes first; past that cap it is only stored. `source` is `llm`,
+  `llm_regenerated` or `template`.
 
 Events are published after the service call that caused them, so subscribe before moving.
 """

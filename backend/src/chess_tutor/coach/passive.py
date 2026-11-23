@@ -76,17 +76,21 @@ class PassiveCoach:
         # Per game, so one stalled LLM call cannot hold up another game; within a game moves are
         # coached in order, which keeps the rate limit and the recent-messages context exact.
         self._in_order: dict[int, asyncio.Lock] = {}
+        # Counted at schedule and released in `_run`'s finally, so whichever task takes it to zero
+        # is certain to be the last (task registry removal happens later, in a done callback).
+        self._pending: dict[int, int] = {}
 
     def player_moved(self, game: Game, ply: int) -> None:
         if game.mode is GameMode.PASSIVE:
             self.schedule(game.id, ply)
 
     def is_coaching(self, game_id: int) -> bool:
-        return game_id in self._tasks.values()
+        return self._pending.get(game_id, 0) > 0
 
     def schedule(self, game_id: int, ply: int) -> None:
         task = asyncio.create_task(self._run(game_id, ply))
         self._tasks[task] = game_id
+        self._pending[game_id] = self._pending.get(game_id, 0) + 1
         task.add_done_callback(lambda done: self._tasks.pop(done, None))
 
     async def wait_until_idle(self) -> None:
@@ -114,9 +118,10 @@ class PassiveCoach:
 
     def _finish_game_if_last(self, game_id: int) -> None:
         """A game that ended while its moves were being coached gets its concept states now."""
-        current = asyncio.current_task()
-        if any(task is not current and game == game_id for task, game in self._tasks.items()):
+        self._pending[game_id] -= 1
+        if self._pending[game_id] > 0:
             return
+        del self._pending[game_id]
         self._in_order.pop(game_id, None)
         with Session(self._engine) as session:
             game = session.get_one(Game, game_id)

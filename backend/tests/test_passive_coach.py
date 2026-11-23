@@ -268,3 +268,15 @@ def test_a_stalled_llm_cannot_hold_resign_open(
 
         assert harness.api.post(f"{game}/resign").status_code == 200
         assert [event.type for event in harness.events()][-1] == "game_over"
+
+
+def test_two_pending_moves_then_a_resign_still_refresh_the_concepts(settings: Settings) -> None:
+    with started(settings, scripted(COMMENT, GENERIC)) as harness:
+        game = f"/games/{harness.game_id}"
+        for uci in PLAYER_MOVES:
+            harness.api.post(f"{game}/moves", json={"uci": uci})
+        harness.api.post(f"{game}/resign")
+
+        with Session(harness.app.state.engine) as session:
+            assert session.scalars(select(ConceptState.concept)).all()
+            assert session.get_one(Game, harness.game_id).accuracy is not None
