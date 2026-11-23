@@ -39,6 +39,9 @@ def test_quiet_positions_have_none(fen: str, detector: Detector) -> None:
     [
         ("r5k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1", {"back_rank:g1", "back_rank:g8"}),
         ("3r2k1/5ppp/8/8/8/8/5PPP/6K1 w - - 0 1", {"back_rank:g1"}),
+        ("3r2k1/5pp1/8/8/7q/8/5PPP/6K1 w - - 0 1", {"back_rank:g1"}),
+        # the h2 luft square is empty but covered by the queen
+        ("3r2k1/5pp1/8/8/7q/8/5PP1/6K1 w - - 0 1", {"back_rank:g1"}),
         ("6k1/5ppp/8/8/8/8/5PPP/3Q2K1 w - - 0 1", {"back_rank:g8"}),
     ],
 )
@@ -189,3 +192,10 @@ def test_packet_includes_threat_facts_with_parallel_pieces(fen: str) -> None:
     assert {fact.type for fact in packet.facts} & threat_types
     for fact in packet.facts:
         assert [piece.square for piece in fact.pieces] == fact.squares
+
+
+def test_pinned_piece_is_not_an_overloaded_defender() -> None:
+    # The queen on d7 is pinned to the king by Rd1, so it cannot legally recapture on c6 or f5.
+    board = chess.Board("3k4/3q4/2n5/5b2/8/8/8/1BRR3K b - - 0 1")
+    assert board.is_pinned(chess.BLACK, chess.D7)
+    assert overloaded_defenders(board) == []

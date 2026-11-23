@@ -32,13 +32,17 @@ def _heavy_pieces(board: chess.Board, color: chess.Color) -> chess.SquareSet:
 
 
 def _king_has_luft(board: chess.Board, king: chess.Square, color: chess.Color) -> bool:
-    """True if any square next to the king, off the back rank, is not blocked by an own piece."""
+    """True if a square next to the king, off the back rank, is free of own pieces and not
+    attacked by the enemy."""
     off_rank = [
         square
         for square in chess.SquareSet(chess.BB_KING_ATTACKS[king])
         if chess.square_rank(square) != _back_rank(color)
     ]
-    return any(board.color_at(square) != color for square in off_rank)
+    return any(
+        board.color_at(square) != color and not board.is_attacked_by(not color, square)
+        for square in off_rank
+    )
 
 
 def _is_back_rank_weak(board: chess.Board, color: chess.Color) -> bool:
@@ -184,6 +188,9 @@ def _is_trapped(board: chess.Board, square: chess.Square) -> bool:
 
 
 def trapped_pieces(board: chess.Board) -> list[Fact]:
+    """Attacked pieces with no safe square. Pawns are excluded: they can only move forward,
+    so "no safe move" is the normal state of a blocked pawn and says nothing useful. The king
+    is excluded because its safety is covered by check and mate facts."""
     # shortcut: only pieces already attacked, not ones a pawn push would trap next move.
     facts = []
     for square, piece in sorted(board.piece_map().items()):
