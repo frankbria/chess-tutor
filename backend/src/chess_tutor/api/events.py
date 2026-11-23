@@ -32,7 +32,16 @@ class GameOverEvent(BaseModel):
     reason: str
 
 
-GameEvent = OpponentMoveEvent | GameOverEvent
+class CoachCommentEvent(BaseModel):
+    type: Literal["coach_comment"] = "coach_comment"
+    ply: int
+    text: str
+    classification: str
+    fact_ids: list[str]
+    source: str
+
+
+GameEvent = OpponentMoveEvent | GameOverEvent | CoachCommentEvent
 
 
 class GameEvents:

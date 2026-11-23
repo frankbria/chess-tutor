@@ -122,8 +122,8 @@ async def test_omitted_opponent_elo_defaults_by_mode(
 def test_api_defaults_opponent_elo_and_returns_performance(settings: Settings) -> None:
     app = create_app(settings, ScriptedOpponent("e5", "Nc6"))
     with TestClient(app) as api:
-        game = api.post("/games", json={"mode": "passive", "color": "white"}).json()
-        assert game["opponent_elo"] == 900  # default rating 800 + 100 stretch
+        game = api.post("/games", json={"mode": "regular", "color": "white"}).json()
+        assert game["opponent_elo"] == 800  # the default rating; the tutor-mode stretch is below
         assert (game["accuracy"], game["performance_rating"]) == (None, None)
         api.post(f"/games/{game['id']}/moves", json={"uci": "g1f3"})
         api.post(f"/games/{game['id']}/moves", json={"uci": "b1c3"})
@@ -132,7 +132,7 @@ def test_api_defaults_opponent_elo_and_returns_performance(settings: Settings) -
         finished = api.get(f"/games/{game['id']}").json()
         history = api.get("/player/rating-history").json()
 
-    expected = performance_rating(900, PERFECT)
+    expected = performance_rating(800, PERFECT)
     assert (finished["accuracy"], finished["performance_rating"]) == (
         pytest.approx(PERFECT),
         expected,

@@ -14,6 +14,14 @@ equal to the object's `type`:
   `resignation` or `timeout`. The stream closes after it.
   A timed game's stream checks the clock once a second and emits `game_over` on a flag.
 
+- `coach_comment` (Passive mode, when the coach is on): `{"type", "ply", "text", "classification",
+  "fact_ids", "source"}`: the coach's comment on the player's move at `ply` (1-based, whole game),
+  only for an Inaccuracy or worse and for Great/Brilliant moves. It is produced in a background
+  task so the opponent's reply is never delayed: expect it after `opponent_move`. When the game ends
+  on the player's move or by resignation, `game_over` waits for the final comment (at most 30
+  seconds), so the comment comes first; past that cap it is only stored. `source` is `llm`,
+  `llm_regenerated` or `template`.
+
 Events are published after the service call that caused them, so subscribe before moving.
 """
 
@@ -28,6 +36,7 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 
 from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
+from chess_tutor.coach.passive import PassiveCoach
 from chess_tutor.games.clock import ClockState
 from chess_tutor.games.service import (
     ColorChoice,
@@ -80,8 +89,14 @@ def get_game_events(request: Request) -> GameEvents:
     return events
 
 
+def get_passive_coach(request: Request) -> PassiveCoach:
+    coach: PassiveCoach = request.app.state.passive_coach
+    return coach
+
+
 Service = Annotated[GameService, Depends(get_game_service)]
 Events = Annotated[GameEvents, Depends(get_game_events)]
+Coach = Annotated[PassiveCoach, Depends(get_passive_coach)]
 
 
 def existing_game_id(game_id: int, service: Service) -> int:
@@ -225,17 +240,22 @@ async def get_game(game_id: int, service: Service) -> GameResponse:
 
 @router.post("/{game_id}/moves")
 async def play_move(
-    game_id: int, body: MoveRequest, service: Service, events: Events
+    game_id: int, body: MoveRequest, service: Service, events: Events, coach: Coach
 ) -> GameResponse:
     plies_before = len(service.get_board(game_id).move_stack)
     game = await service.play_move(game_id, body.uci)
+    if game.status is GameStatus.FINISHED:
+        await coach.wait_for_game(
+            game_id
+        )  # the final comment must reach the stream before it closes
     publish_after_move(service, events, game, plies_before)
     return describe(service, game)
 
 
 @router.post("/{game_id}/resign")
-async def resign(game_id: int, service: Service, events: Events) -> GameResponse:
+async def resign(game_id: int, service: Service, events: Events, coach: Coach) -> GameResponse:
     game = service.resign(game_id)
+    await coach.wait_for_game(game_id)
     events.publish(game_id, game_over_event(service.get_board(game_id), game))
     return describe(service, game)
 

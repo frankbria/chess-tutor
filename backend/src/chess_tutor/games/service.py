@@ -4,6 +4,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Protocol
 
 import chess
 import chess.pgn
@@ -30,6 +31,14 @@ from chess_tutor.rating.performance import record_performance
 from chess_tutor.settings import Thresholds
 
 OPPONENT_ENGINE_NAME = "maia3"
+
+
+class PlayerMoveObserver(Protocol):
+    def player_moved(self, game: Game, ply: int) -> None:
+        """Called under the move lock right after the player's move is committed."""
+
+    def is_coaching(self, game_id: int) -> bool:
+        """True while work on the game's moves is pending; it then refreshes concepts itself."""
 
 
 class ColorChoice(StrEnum):
@@ -93,7 +102,9 @@ class GameService:
         pacing: OpponentPacing | None = None,
         thresholds: Thresholds | None = None,
         clock: Callable[[], int] = wall_clock_ms,
+        observer: PlayerMoveObserver | None = None,
     ) -> None:
+        self._observer = observer
         self._clock = clock
         self._thresholds = thresholds or Thresholds()
         self._engine = engine
@@ -155,8 +166,11 @@ class GameService:
                 if board.turn != chess_color(game.player_color):
                     raise NotPlayersTurnError("it is the opponent's turn")
                 move = self._parse_legal_move(board, uci)
+                plies_before = len(board.move_stack)
                 self._push(session, game, board, move)
                 session.commit()
+                if self._observer is not None and len(board.move_stack) > plies_before:
+                    self._observer.player_moved(game, len(board.move_stack))
         return await self.play_opponent_move(game_id)
 
     async def play_opponent_move(self, game_id: int) -> Game:
@@ -339,9 +353,10 @@ class GameService:
         game.pgn = self._render_pgn(session, game)
         record_performance(session, game)
         record_rating(session, game, self._thresholds)
-        refresh_concept_states(
-            session, game.player_id, game.id, game.ended_at, self._thresholds.concept_state
-        )
+        if self._observer is None or not self._observer.is_coaching(game.id):
+            refresh_concept_states(
+                session, game.player_id, game.id, game.ended_at, self._thresholds.concept_state
+            )
 
     def _render_pgn(self, session: Session, game: Game) -> str:
         player = session.get_one(Player, game.player_id)

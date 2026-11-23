@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from chess_tutor.api.events import GameEvents
 from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
+from chess_tutor.coach.llm import LanguageModel, create_language_model
+from chess_tutor.coach.passive import PassiveCoach
 from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
 from chess_tutor.engines.human_moves import HumanMovePredictor
@@ -65,7 +67,11 @@ CONCEPT_STATE_ORDER = (
 )
 
 
-def create_app(settings: Settings | None = None, opponent: OpponentEngine | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    opponent: OpponentEngine | None = None,
+    language_model: LanguageModel | None = None,
+) -> FastAPI:
     settings = settings or Settings()
 
     @asynccontextmanager
@@ -84,13 +90,12 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
             engine.dispose()
             return
         predictor = HumanMovePredictor.from_settings(settings) if settings.maia_enabled else None
-        steering_pool: StockfishPool | None = None
+        pool = StockfishPool(settings.stockfish_path, settings.stockfish_pool_size)  # shared
         if predictor is not None and settings.opponent_steering_enabled:
-            steering_pool = StockfishPool(settings.stockfish_path, settings.stockfish_pool_size)
             game_opponent = SteeringOpponent(
                 game_opponent,
                 predictor,
-                steering_pool,
+                pool,
                 lambda: focus_concepts_of_first_player(engine),
                 settings.opponent_steering_rate,
                 settings.opponent_steering_max_eval_loss_centipawns,
@@ -101,23 +106,31 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
             await game_opponent.start()
             if predictor is not None:
                 await predictor.start()
-            if steering_pool is not None:
-                await steering_pool.start()
+            await pool.start()
         except Exception:
             await game_opponent.close()
             if predictor is not None:
                 await predictor.close()
-            if steering_pool is not None:
-                await steering_pool.close()
+            await pool.close()
             engine.dispose()
             raise
         pacing = None if predictor is None else OpponentPacing(settings, predictor)
-        app.state.game_service = GameService(engine, game_opponent, pacing, settings.thresholds)
+        passive_coach = PassiveCoach(
+            engine,
+            pool,
+            language_model or create_language_model(settings),
+            app.state.game_events,
+            settings,
+        )
+        app.state.game_service = GameService(
+            engine, game_opponent, pacing, settings.thresholds, observer=passive_coach
+        )
+        app.state.passive_coach = passive_coach
         try:
             yield
         finally:
-            if steering_pool is not None:
-                await steering_pool.close()
+            await passive_coach.close()
+            await pool.close()
             if predictor is not None:
                 await predictor.close()
             await game_opponent.close()

@@ -63,6 +63,24 @@ class ConceptSource(StrEnum):
     REASONING = "reasoning"
 
 
+class CoachRole(StrEnum):
+    COACH = "coach"
+    PLAYER = "player"
+
+
+class CoachMessageKind(StrEnum):
+    COMMENT = "comment"
+    QUESTION = "question"
+    ANSWER = "answer"
+    HINT = "hint"
+
+
+class CoachMessageSource(StrEnum):
+    LLM = "llm"
+    LLM_REGENERATED = "llm_regenerated"
+    TEMPLATE = "template"
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -178,6 +196,24 @@ class ConceptEvent(Base):
     ply: Mapped[int]
     concept: Mapped[str]
     source: Mapped[ConceptSource] = mapped_column(string_enum(ConceptSource))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class CoachMessage(Base):
+    __tablename__ = "coach_message"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), index=True)
+    ply: Mapped[int]
+    role: Mapped[CoachRole] = mapped_column(string_enum(CoachRole))
+    kind: Mapped[CoachMessageKind] = mapped_column(string_enum(CoachMessageKind))
+    hint_level: Mapped[int | None] = mapped_column(default=None)
+    text: Mapped[str]
+    fact_ids: Mapped[str]  # JSON list
+    source: Mapped[CoachMessageSource] = mapped_column(string_enum(CoachMessageSource))
+    concepts: Mapped[str]  # JSON list of concept values
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
