@@ -1,12 +1,45 @@
 from datetime import UTC, datetime
+from enum import StrEnum
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import DateTime, Enum, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 DEFAULT_RATING = 800.0
 DEFAULT_RATING_DEVIATION = 350.0
 DEFAULT_VOLATILITY = 0.06
 DEFAULT_DISPLAY_NAME = "Player"
+
+
+class GameMode(StrEnum):
+    REGULAR = "regular"
+    PASSIVE = "passive"
+    ACTIVE = "active"
+
+
+class PlayerColor(StrEnum):
+    WHITE = "white"
+    BLACK = "black"
+
+
+class GameStatus(StrEnum):
+    ACTIVE = "active"
+    FINISHED = "finished"
+
+
+class GameResult(StrEnum):
+    WHITE_WINS = "1-0"
+    BLACK_WINS = "0-1"
+    DRAW = "1/2-1/2"
+
+
+def string_enum(enum_class: type[StrEnum]) -> Enum:
+    # Store the enum values ("1-0"), not the member names, as plain strings.
+    return Enum(
+        enum_class,
+        values_callable=lambda members: [member.value for member in members],
+        native_enum=False,
+        length=16,
+    )
 
 
 class Base(DeclarativeBase):
@@ -32,3 +65,33 @@ class PlayerSetting(Base):
     player_id: Mapped[int] = mapped_column(ForeignKey("player.id"), primary_key=True)
     key: Mapped[str] = mapped_column(primary_key=True)
     value: Mapped[str]
+
+
+class Game(Base):
+    __tablename__ = "game"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id"))
+    mode: Mapped[GameMode] = mapped_column(string_enum(GameMode))
+    player_color: Mapped[PlayerColor] = mapped_column(string_enum(PlayerColor))
+    opponent_engine: Mapped[str]
+    opponent_elo: Mapped[int]
+    status: Mapped[GameStatus] = mapped_column(string_enum(GameStatus))
+    result: Mapped[GameResult | None] = mapped_column(string_enum(GameResult), default=None)
+    pgn: Mapped[str | None] = mapped_column(default=None)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+
+
+class Move(Base):
+    __tablename__ = "move"
+    __table_args__ = (UniqueConstraint("game_id", "ply"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"))
+    ply: Mapped[int]
+    san: Mapped[str]
+    uci: Mapped[str]
+    fen_before: Mapped[str]

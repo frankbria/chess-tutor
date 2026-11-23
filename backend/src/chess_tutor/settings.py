@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     maia_command: str = "maia3-uci"
     maia_model: Literal["3m", "5m", "23m", "79m"] = "5m"
     maia_device: str = "cpu"
+    maia_enabled: bool = True  # tests that never play a game switch the engine off
 
     llm_provider: Literal["anthropic", "none"] = "anthropic"
     llm_api_key: SecretStr | None = None

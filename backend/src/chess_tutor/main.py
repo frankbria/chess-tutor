@@ -8,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
+from chess_tutor.engines.opponent import Maia3Opponent
+from chess_tutor.games.service import GameService
 from chess_tutor.models import Player
 from chess_tutor.settings import Settings
 
@@ -30,8 +32,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_database_engine(settings)
         seed_default_player(engine)
         app.state.engine = engine
-        yield
-        engine.dispose()
+        if not settings.maia_enabled:
+            yield
+            engine.dispose()
+            return
+        opponent = Maia3Opponent.from_settings(settings)
+        await opponent.start()
+        app.state.game_service = GameService(engine, opponent)
+        try:
+            yield
+        finally:
+            await opponent.close()
+            engine.dispose()
 
     app = FastAPI(title="Chess Tutor", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=settings.frontend_origins)
