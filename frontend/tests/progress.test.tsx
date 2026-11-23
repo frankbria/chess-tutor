@@ -181,6 +181,7 @@ describe("ProgressView", () => {
       await screen.findByRole("heading", { name: "Mastered" }),
     ).toBeInTheDocument();
     expect(screen.getByText("skewer")).toBeInTheDocument();
+    expect(screen.queryByText(/seen/)).not.toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Your focus areas will appear after a few games."),
