@@ -25,7 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Suspense fallback={<AppNavigation currentPath="" />}>
           <CurrentAppNavigation />
         </Suspense>
-        <main className="flex flex-1 flex-col px-4 pt-6 pb-[calc(6rem+env(safe-area-inset-bottom))] md:px-8 md:pb-6">{children}</main>
+        <main className="flex min-w-0 flex-1 flex-col px-4 pt-6 pb-[calc(6rem+env(safe-area-inset-bottom))] md:px-8 md:pb-6">{children}</main>
       </body>
     </html>
   );

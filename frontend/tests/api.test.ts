@@ -13,7 +13,7 @@ describe("API_BASE_URL", () => {
   });
 
   it("defaults to the local backend", async () => {
-    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", undefined);
+    delete process.env.NEXT_PUBLIC_API_BASE_URL;
     const { API_BASE_URL } = await import("@/lib/api");
     expect(API_BASE_URL).toBe("http://127.0.0.1:8000");
   });
