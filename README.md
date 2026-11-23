@@ -27,7 +27,9 @@ Requires Node 24+.
 ```bash
 cd frontend
 npm install
-npm run dev          # http://localhost:3000 (installable PWA; open on a phone over LAN/Tailscale)
+npm run dev          # http://localhost:3000
 npm test             # vitest + Testing Library
 npm run lint && npm run typecheck && npm run build
 ```
+
+The app is an installable PWA. Browsers only offer install on `localhost` or over HTTPS, so to install on a phone, serve it over HTTPS (for example `tailscale serve`). Plain `http://` on the LAN loads the app but won't offer install.
