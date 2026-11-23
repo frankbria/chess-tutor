@@ -106,6 +106,32 @@ def test_loss_maps_to_label_around_each_threshold(
     assert classify_with_loss(loss) is expected
 
 
+@pytest.mark.parametrize(
+    ("boundary", "expected"),
+    [
+        ("inaccuracy", MoveClassification.INACCURACY),
+        ("mistake", MoveClassification.MISTAKE),
+        ("blunder", MoveClassification.BLUNDER),
+    ],
+)
+def test_a_loss_exactly_on_a_threshold_takes_that_label(
+    boundary: str, expected: MoveClassification
+) -> None:
+    # A centipawn score can't land on exactly 5.0 points, so set the threshold to the loss itself.
+    played_cp = -60
+    loss = win_probability(cp(0)) - win_probability(cp(played_cp))
+    thresholds = ClassificationThresholds(inaccuracy=100, mistake=100, blunder=100)
+    thresholds = thresholds.model_copy(update={boundary: loss})
+    result = classify_move(
+        [line(BEST_MOVE, 0), line("d2d4", -300)],
+        START,
+        PLAYED,
+        thresholds,
+        after=line("e7e5", played_cp),
+    )
+    assert result is expected
+
+
 def test_thresholds_are_configurable() -> None:
     strict = ClassificationThresholds(inaccuracy=1.0, mistake=2.0, blunder=3.0)
     result = classify_move(
@@ -312,3 +338,23 @@ def test_even_trade_is_not_a_sacrifice() -> None:
     trade = chess.Move.from_uci("e2e5")  # rook takes rook, the d6 pawn recaptures
     lines = [AnalysedLine(white_score=cp(0), side_to_move_score=cp(0), pv=[trade])]
     assert classify_move(lines, board, trade) is MoveClassification.BEST
+
+
+async def test_the_only_winning_move_is_great(pool: StockfishPool) -> None:
+    # Rd8# is the one move that wins; every alternative lets the queen back into the game.
+    board = chess.Board("6k1/5ppp/8/8/8/8/1q3PPP/3R2K1 w - - 0 1")
+
+    assessment = await assess_played_move(pool, board, chess.Move.from_uci("d1d8"))
+
+    assert assessment.classification is MoveClassification.GREAT
+
+
+async def test_legals_mate_bishop_sacrifice_is_brilliant(pool: StockfishPool) -> None:
+    # 1.e4 e5 2.Nf3 d6 3.Bc4 Bg4 4.Nc3 g6 5.Nxe5 Bxd1: Bxf7+! gives up a bishop for a mating attack.
+    board = chess.Board()
+    for san in ["e4", "e5", "Nf3", "d6", "Bc4", "Bg4", "Nc3", "g6", "Nxe5", "Bxd1"]:
+        board.push_san(san)
+
+    assessment = await assess_played_move(pool, board, board.parse_san("Bxf7+"))
+
+    assert assessment.classification is MoveClassification.BRILLIANT

@@ -9,7 +9,6 @@ from chess_tutor.engines.stockfish import AnalysedLine, Budget, StockfishPool
 from chess_tutor.facts.detectors import exchange_gain, piece_value
 from chess_tutor.settings import ClassificationThresholds
 
-DEFAULT_THRESHOLDS = ClassificationThresholds()
 EXPLORED_LINES = 3
 PAWN_VALUE = 1
 
@@ -101,12 +100,13 @@ def assess_move(
     before: list[AnalysedLine],
     board_before: chess.Board,
     move: chess.Move,
-    thresholds: ClassificationThresholds = DEFAULT_THRESHOLDS,
+    thresholds: ClassificationThresholds | None = None,
     after: AnalysedLine | None = None,
 ) -> MoveAssessment:
     """Classify `move` from the analysis of `board_before` (best line first, MultiPV >= 2 to
     detect only-moves). `after` is the analysis of the resulting position, needed only when the
     move is not among the analysed lines."""
+    thresholds = thresholds or ClassificationThresholds()
     mover = board_before.turn
     best_probability = _mover_win_probability(before[0], mover)
     played_line = next((line for line in before if line.pv and line.pv[0] == move), None)
@@ -161,7 +161,7 @@ def classify_move(
     before: list[AnalysedLine],
     board_before: chess.Board,
     move: chess.Move,
-    thresholds: ClassificationThresholds = DEFAULT_THRESHOLDS,
+    thresholds: ClassificationThresholds | None = None,
     after: AnalysedLine | None = None,
 ) -> MoveClassification:
     return assess_move(before, board_before, move, thresholds, after).classification
@@ -171,7 +171,7 @@ async def assess_played_move(
     pool: StockfishPool,
     board_before: chess.Board,
     move: chess.Move,
-    thresholds: ClassificationThresholds = DEFAULT_THRESHOLDS,
+    thresholds: ClassificationThresholds | None = None,
     budget: Budget = Budget.STANDARD,
 ) -> MoveAssessment:
     """Analyse the position (MultiPV 3), and the position after the move if it is not a top line."""
