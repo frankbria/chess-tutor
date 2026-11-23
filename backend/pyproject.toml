@@ -40,8 +40,9 @@ markers = [
     "maia: needs the real Maia-3 engine (scripts/install_maia3.sh)",
     "maia2: needs the real Maia-2 engine (scripts/install_maia2.sh)",
     "llm: calls the real Anthropic API (skipped when no credentials resolve)",
+    "slow: minutes-long real-engine simulations (run with: uv run pytest -m slow)",
 ]
-addopts = "--cov=chess_tutor --cov-report=term-missing --cov-fail-under=85"
+addopts = "-m 'not slow and not llm' --cov=chess_tutor --cov-report=term-missing --cov-fail-under=85"
 
 [tool.ruff]
 line-length = 100

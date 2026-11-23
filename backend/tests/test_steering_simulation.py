@@ -17,7 +17,7 @@ from chess_tutor.engines.stockfish import Budget, StockfishPool
 from chess_tutor.facts.models import Side
 from chess_tutor.facts.packet import build_fact_packet
 
-pytestmark = [pytest.mark.maia, pytest.mark.asyncio(loop_scope="module")]
+pytestmark = [pytest.mark.maia, pytest.mark.slow, pytest.mark.asyncio(loop_scope="module")]
 
 ELO = 1400
 GAMES = 4
