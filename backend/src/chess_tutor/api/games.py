@@ -87,7 +87,10 @@ def existing_game_id(game_id: int, service: Service) -> int:
 class CreateGameRequest(BaseModel):
     mode: GameMode = GameMode.REGULAR
     color: ColorChoice = ColorChoice.RANDOM
-    opponent_elo: int = Field(description="Opponent strength, validated by the service")
+    opponent_elo: int | None = Field(
+        default=None,
+        description="Defaults to the player rating, plus the stretch in tutor modes",
+    )
 
 
 class MoveRequest(BaseModel):
@@ -101,6 +104,8 @@ class GameResponse(BaseModel):
     opponent_elo: int
     status: GameStatus
     result: GameResult | None
+    accuracy: float | None = Field(description="Player accuracy, null until moves are classified")
+    performance_rating: float | None
     fen: str
     moves: list[str] = Field(description="Moves in SAN, in play order")
     side_to_move: PlayerColor
@@ -118,6 +123,8 @@ def describe(service: GameService, game: Game) -> GameResponse:
         opponent_elo=game.opponent_elo,
         status=game.status,
         result=game.result,
+        accuracy=game.accuracy,
+        performance_rating=game.performance_rating,
         fen=board.fen(),
         moves=moves,
         side_to_move=PlayerColor.WHITE if board.turn == chess.WHITE else PlayerColor.BLACK,
