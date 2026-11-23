@@ -6,6 +6,8 @@ normal sampling (tail mistakes included) and hence the opponent's strength is pr
 import logging
 import random
 from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
 from types import MappingProxyType
 from typing import Protocol, Self
 
@@ -18,26 +20,38 @@ from chess_tutor.concepts.taxonomy import Concept
 from chess_tutor.engines.human_moves import HumanMovePrediction
 from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.stockfish import AnalysedLine, Budget
-from chess_tutor.facts.models import FactType
+from chess_tutor.facts.models import FactType, Side
 from chess_tutor.facts.packet import build_fact_packet
 from chess_tutor.models import ConceptState, ConceptStatus, Player
 
 logger = logging.getLogger(__name__)
 
-# Fact types whose presence in the position the player must answer makes it test the concept.
+
+class Owner(Enum):
+    PLAYER = "player"
+    OPPONENT = "opponent"
+
+
+@dataclass(frozen=True)
+class Motif:
+    """A fact the steered position must contain: its type, optional id prefix and whose side."""
+
+    fact_type: FactType
+    id_prefix: str | None
+    owner: Owner
+
+
+# Only concepts whose fact side is verified to hand the PLAYER the practice moment are steered
+# (the player is to move after the opponent's move): the player's piece hangs, the player has a
+# fork or mate available, or the opponent threatens mate. Every other concept (pins, skewers,
+# discovered attacks, back rank, overloads, traps, allowed forks) has unverified side semantics
+# and is left to Maia rather than risk steering into a gift to the opponent.
 CONCEPT_MOTIFS = MappingProxyType(
     {
-        Concept.HANGING_PIECE: frozenset({FactType.HANGING_PIECE}),
-        Concept.MISSED_FORK: frozenset({FactType.FORK}),
-        Concept.ALLOWED_FORK: frozenset({FactType.FORK}),
-        Concept.PIN_BLINDNESS: frozenset({FactType.PIN}),
-        Concept.SKEWER_BLINDNESS: frozenset({FactType.SKEWER}),
-        Concept.DISCOVERED_ATTACK_BLINDNESS: frozenset({FactType.DISCOVERED_ATTACK}),
-        Concept.BACK_RANK: frozenset({FactType.BACK_RANK_WEAKNESS}),
-        Concept.MISSED_MATE: frozenset({FactType.MATE_IN_ONE}),
-        Concept.ALLOWED_MATE: frozenset({FactType.MATE_THREAT}),
-        Concept.OVERLOADED_DEFENDER: frozenset({FactType.OVERLOADED_DEFENDER}),
-        Concept.TRAPPED_PIECE: frozenset({FactType.TRAPPED_PIECE}),
+        Concept.HANGING_PIECE: Motif(FactType.HANGING_PIECE, None, Owner.PLAYER),
+        Concept.MISSED_FORK: Motif(FactType.FORK, "fork_opportunity:", Owner.PLAYER),
+        Concept.MISSED_MATE: Motif(FactType.MATE_IN_ONE, None, Owner.PLAYER),
+        Concept.ALLOWED_MATE: Motif(FactType.MATE_THREAT, None, Owner.OPPONENT),
     }
 )
 
@@ -109,11 +123,11 @@ class SteeringOpponent:
             self._random.random() >= self._rate
         ):  # most moves stay Maia's own, tail blunders included
             return await self._wrapped.choose_move(board, elo)
-        motifs = {
-            fact_type
+        motifs = [
+            CONCEPT_MOTIFS[concept]
             for concept in self._focus_concepts()
-            for fact_type in CONCEPT_MOTIFS.get(concept, frozenset())
-        }
+            if concept in CONCEPT_MOTIFS
+        ]
         if motifs:
             try:
                 steered = await self._steer(board, elo, motifs)
@@ -124,9 +138,7 @@ class SteeringOpponent:
                 return steered
         return await self._wrapped.choose_move(board, elo)
 
-    async def _steer(
-        self, board: chess.Board, elo: int, motifs: set[FactType]
-    ) -> chess.Move | None:
+    async def _steer(self, board: chess.Board, elo: int, motifs: list[Motif]) -> chess.Move | None:
         candidates = [
             candidate
             for candidate in await self._predictor.predict_human_moves(board, elo, self._top_moves)
@@ -134,9 +146,10 @@ class SteeringOpponent:
         ]
         if len(candidates) < 2:
             return None
+        player = Side.BLACK if board.turn == chess.WHITE else Side.WHITE
         already_present = {fact.id for fact in build_fact_packet(board).facts}
         tests_focus = [
-            self._creates_motif(board, candidate.move, motifs, already_present)
+            self._creates_motif(board, candidate.move, motifs, already_present, player)
             for candidate in candidates
         ]
         if not any(tests_focus):
@@ -157,13 +170,24 @@ class SteeringOpponent:
 
     @staticmethod
     def _creates_motif(
-        board: chess.Board, move: chess.Move, motifs: set[FactType], already_present: set[str]
+        board: chess.Board,
+        move: chess.Move,
+        motifs: list[Motif],
+        already_present: set[str],
+        player: Side,
     ) -> bool:
-        """A motif the move newly brings about; one already on the board steers nothing."""
+        """A motif the move newly brings about on the player's side of the practice moment."""
         after = board.copy(stack=False)
         after.push(move)
+        opponent = Side.WHITE if player == Side.BLACK else Side.BLACK
         return any(
-            fact.type in motifs and fact.id not in already_present
+            fact.id not in already_present
+            and any(
+                fact.type == motif.fact_type
+                and (motif.id_prefix is None or fact.id.startswith(motif.id_prefix))
+                and fact.side == (player if motif.owner is Owner.PLAYER else opponent)
+                for motif in motifs
+            )
             for fact in build_fact_packet(after).facts
         )
 
