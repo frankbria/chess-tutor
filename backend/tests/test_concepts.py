@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import chess
 import pytest
@@ -7,11 +7,12 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.analysis.move_delta import MoveDelta, move_delta
-from chess_tutor.concepts.tagger import record_concepts, tag_mistake
+from chess_tutor.concepts.tagger import _positional_concepts, record_concepts, tag_mistake
 from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
 from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.facts.models import Fact, FactType, Side
+from chess_tutor.facts.positional import development, king_safety
 from chess_tutor.games.service import ColorChoice, GameService
 from chess_tutor.models import ConceptEvent, ConceptSource, GameMode
 from chess_tutor.openings.phase import GamePhase
@@ -311,3 +312,60 @@ async def test_concept_events_are_written_for_a_game(engine: Engine, pool: Stock
         assert {row.source for row in rows[:-1]} == {ConceptSource.MOVE}
         assert (rows[-1].ply, rows[-1].source) == (6, ConceptSource.REASONING)
         assert all(row.player_id == PLAYER_ID and row.game_id == game.id for row in rows)
+
+
+def test_playing_one_of_several_mates_is_not_a_missed_mate() -> None:
+    board = chess.Board("6k1/8/6K1/8/8/8/8/Q6R w - - 0 1")
+    mates = [move for move in board.legal_moves if _gives_mate(board, move)]
+    assert len(mates) >= 2
+
+    for mate in mates:
+        assert Concept.MISSED_MATE not in tag_mistake(
+            delta_with(board.san(mate)), GamePhase.ENDGAME, board
+        )
+    assert Concept.MISSED_MATE in tag_mistake(delta_with("Kf6"), GamePhase.ENDGAME, board)
+
+
+def _gives_mate(board: chess.Board, move: chess.Move) -> bool:
+    board.push(move)
+    mated = board.is_checkmate()
+    board.pop()
+    return mated
+
+
+def test_a_missing_best_move_cannot_be_a_missed_fork() -> None:
+    board = chess.Board(FORK_AVAILABLE)
+
+    assert Concept.MISSED_FORK not in tag_mistake(delta_with("Kd2"), GamePhase.ENDGAME, board)
+
+
+@pytest.mark.parametrize(
+    ("fen", "detector", "expected"),
+    [
+        (
+            "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+            development,
+            Concept.EARLY_QUEEN,
+        ),
+        (
+            "r1bqkb1r/pppp1ppp/2n2n2/4p3/4P3/2NP1N2/PPP2PPP/R1BQKB1R w KQkq - 0 8",
+            development,
+            Concept.UNDEVELOPED_PIECES,
+        ),
+        (
+            "r1bqk2r/ppp2ppp/2n2n2/8/8/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 10",
+            king_safety,
+            Concept.UNCASTLED_KING,
+        ),
+    ],
+)
+def test_real_detector_output_is_recognised(
+    fen: str, detector: Callable[[chess.Board], list[Fact]], expected: Concept
+) -> None:
+    board = chess.Board(fen)
+    if expected is Concept.EARLY_QUEEN:
+        board.push_san("Qh5")
+        board.push_san("Nc6")
+    facts = [fact for fact in detector(board) if fact.side is Side.WHITE]
+
+    assert expected in _positional_concepts(facts, set(), rook_moved=False)

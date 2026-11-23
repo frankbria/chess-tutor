@@ -73,13 +73,16 @@ def tag_mistake(delta: MoveDelta, phase: GamePhase, board_before: chess.Board) -
     if any(fact.type is FactType.HANGING_PIECE for fact in after):
         concepts.add(Concept.HANGING_PIECE)
 
-    best_uci = delta.best_move.uci() if delta.best_move else None
-    for fact in before:
-        if fact.side is not mover_side or fact.san_lines == [[delta.move_san]]:
-            continue
-        if fact.type is FactType.MATE_IN_ONE:
-            concepts.add(Concept.MISSED_MATE)
-        elif fact.id == f"fork_opportunity:{best_uci}":
+    mates = [
+        fact for fact in before if fact.type is FactType.MATE_IN_ONE and fact.side is mover_side
+    ]
+    if mates and not any([delta.move_san] in fact.san_lines for fact in mates):
+        concepts.add(Concept.MISSED_MATE)
+    if delta.best_move is not None:
+        fork_id = f"fork_opportunity:{delta.best_move.uci()}"
+        if any(fact.id == fork_id and fact.side is mover_side for fact in before) and (
+            delta.move_san != delta.best_move_san
+        ):
             concepts.add(Concept.MISSED_FORK)
 
     concepts.update(

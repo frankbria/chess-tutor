@@ -33,8 +33,10 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_concept_event_player_id", "concept_event", ["player_id"])
+    op.create_index("ix_concept_event_game_id", "concept_event", ["game_id"])
 
 
 def downgrade() -> None:
+    op.drop_index("ix_concept_event_game_id", table_name="concept_event")
     op.drop_index("ix_concept_event_player_id", table_name="concept_event")
     op.drop_table("concept_event")
