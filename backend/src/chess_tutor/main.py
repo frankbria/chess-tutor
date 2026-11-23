@@ -9,4 +9,3 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     return app
-import os
