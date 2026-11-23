@@ -41,7 +41,8 @@ class LanguageModelError(Exception):
 
 @dataclass(frozen=True)
 class ChatMessage:
-    role: Literal["user", "assistant"]
+    # "system" is an operator instruction mid-conversation (supported on the Sonnet/Haiku 5.5 tiers)
+    role: Literal["user", "assistant", "system"]
     content: str
 
 
@@ -215,14 +216,15 @@ def _cached_system(system: str) -> list[TextBlockParam]:
 
 
 def _to_params(messages: Sequence[ChatMessage]) -> list[MessageParam]:
-    return [
-        (
-            {"role": "user", "content": message.content}
-            if message.role == "user"
-            else {"role": "assistant", "content": message.content}
-        )
-        for message in messages
-    ]
+    return [_to_param(message) for message in messages]
+
+
+def _to_param(message: ChatMessage) -> MessageParam:
+    if message.role == "user":
+        return {"role": "user", "content": message.content}
+    if message.role == "assistant":
+        return {"role": "assistant", "content": message.content}
+    return {"role": "system", "content": message.content}
 
 
 def raise_unless_complete(stop_reason: str | None, usage: Usage | None) -> None:

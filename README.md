@@ -29,6 +29,9 @@ make lint                # every package's lint, format and type checks
 | `NEXT_PUBLIC_API_BASE_URL` | `http://127.0.0.1:<backend port>`, or `/api` when `PUBLIC_HOST` is set | API URL the frontend calls |
 | `CHESS_TUTOR_DATABASE_PATH` | `<repo>/data/chess_tutor.db` | SQLite file (`data/` is gitignored) |
 | `CHESS_TUTOR_STOCKFISH_PATH` | `/usr/games/stockfish` | Stockfish binary |
+| `CHESS_TUTOR_OPPONENT_STEERING_ENABLED` | `false` | Stretch: on some moves the opponent plays a Maia top-4 move that sets up your FOCUS-concept motifs |
+| `CHESS_TUTOR_OPPONENT_STEERING_RATE` | `0.25` | Share of opponent moves that may be steered; the rest are plain Maia |
+| `CHESS_TUTOR_OPPONENT_STEERING_MAX_EVAL_LOSS_CENTIPAWNS` | `30` | A steered move never costs more than this versus Maia's first choice (Stockfish quick) |
 | `CHESS_TUTOR_MAIA_COMMAND` | `maia3-uci` | Maia-3 UCI executable |
 | `CHESS_TUTOR_MAIA_MODEL` / `CHESS_TUTOR_MAIA_DEVICE` | `5m` / `cpu` | Maia-3 size (`3m`, `5m`, `23m`, `79m`) and torch device |
 | `CHESS_TUTOR_LLM_PROVIDER` | `anthropic` | `anthropic`, or `none` for no coach |

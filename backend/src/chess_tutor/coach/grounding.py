@@ -10,9 +10,15 @@ Rules `validate_reply` enforces on `reply.text`:
 - a bare square ("e4", matched only as a standalone [a-h][1-8] token) must appear in a cited
   fact's `squares` or `pieces`; a bare token that equals a verified pawn move is accepted as
   that move;
-- "<piece> on <square>" must also match a cited fact's piece type when that fact lists a piece
-  on the square;
+- "<piece> on <square>", "<square> <piece>" ("the c7 bishop") and "Black's e5 pawn" must match
+  the piece type: a cited fact's piece on the square when there is one, else the actual board
+  (the packet position, the position after the commented move, or any position along a verified
+  line). A square no board shows that piece on is rejected;
+- a bare square right after move wording ("play e4", "then e5", "try d4") is read as a move and
+  needs a verified line, not just a cited square;
 - Active mode before lock-in: the best move's SAN may not appear at all;
+- the reply may not talk about a correction ("Good catch", "Let me redo", "Sorry", "rewrite",
+  "my previous reply"): such text is for the operator, never for the student;
 - text with no concrete move or square needs no fact.
 """
 
@@ -47,8 +53,25 @@ _SAN = re.compile(
     rf"|[a-h]x{_SQUARE}(?:=[QRBN])?|{_SQUARE}=[QRBN])[+#]?(?!\w)"
 )
 _SQUARE_TOKEN = re.compile(rf"(?<![\w-])({_SQUARE})(?!\w)")
+_PIECE_NAMES = "king|queen|rook|bishop|knight|pawn"
 _PIECE_ON_SQUARE = re.compile(
-    rf"\b(king|queen|rook|bishop|knight|pawn)s?\s+(?:on|at)\s+({_SQUARE})(?!\w)", re.IGNORECASE
+    rf"\b({_PIECE_NAMES})s?\s+(?:on|at)\s+({_SQUARE})(?!\w)", re.IGNORECASE
+)
+_SQUARE_THEN_PIECE = re.compile(rf"(?<![\w-])({_SQUARE})\s+({_PIECE_NAMES})s?\b", re.IGNORECASE)
+_MOVE_WORDING = re.compile(
+    rf"\b(?:play|plays|played|playing|push|pushes|pushing|with|after|then|try|instead of)\s+"
+    rf"({_SQUARE})(?!\w)",
+    re.IGNORECASE,
+)
+_CORRECTION_OPENING = re.compile(
+    r"^\W*(?:good catch|let me (?:redo|rewrite|fix|try again)|sorry|my (?:mistake|apologies)"
+    r"|i apologi[sz]e|you'?re right,? (?:let me|i)|thanks for (?:catching|pointing))",
+    re.IGNORECASE,
+)
+_CORRECTION_WORDING = re.compile(
+    r"\b(?:correction|rewrit(?:e|ing|ten)|corrected (?:reply|version)"
+    r"|(?:my )?(?:previous|earlier|first) (?:reply|answer|message|draft))\b",
+    re.IGNORECASE,
 )
 _NO_CHECK_MARK = str.maketrans("", "", "+#")
 
@@ -83,6 +106,7 @@ class GroundingErrorKind(StrEnum):
     UNVERIFIED_MOVE = "unverified_move"
     PIECE_MISMATCH = "piece_mismatch"
     BEST_MOVE_LEAK = "best_move_leak"
+    META_COMMENTARY = "meta_commentary"
 
 
 @dataclass(frozen=True)
@@ -133,38 +157,59 @@ def _start_positions(context: CoachContext) -> Iterator[chess.Board]:
         yield skipped.copy(stack=False)
 
 
-def _replay(line: list[str], start: chess.Board) -> list[chess.Move] | None:
+def _replay(
+    line: list[str], start: chess.Board
+) -> tuple[list[chess.Move], list[chess.Board]] | None:
+    """The line's moves and every position reached along it, or None when it is illegal."""
     board = start.copy(stack=False)
-    moves = []
+    moves: list[chess.Move] = []
+    boards: list[chess.Board] = []
     try:
         for san in line:
             moves.append(board.push_san(san))
+            boards.append(board.copy(stack=False))
     except ValueError:
         return None
-    return moves
+    return moves, boards
 
 
-def _verified_references(cited: list[Fact], context: CoachContext) -> tuple[set[str], set[str]]:
-    """The SANs and the squares those verified moves touch (from and to)."""
+@dataclass(frozen=True)
+class _Verified:
+    sans: set[str]
+    squares: set[str]  # squares the verified moves start or end on
+    pieces: dict[str, set[str]]  # square -> piece types seen there on a verified board
+
+
+def _verified_references(cited: list[Fact], context: CoachContext) -> _Verified:
     starts = list(_start_positions(context))
     lines = [[context.move_san]]
     if not context.active_pre_lock_in:  # the prompt makes best_move/best_line citable once shown
         lines += [context.best_line, [context.best_move_san] if context.best_move_san else []]
     lines += [line for fact in cited for line in fact.san_lines]
-    sans: set[str] = set()
-    squares: set[str] = set()
+    verified = _Verified(set(), set(), {})
+    for start in starts:
+        _record_pieces(start, verified.pieces)
     for line in lines:
         for start in starts:
-            moves = _replay(line, start)
-            if moves is not None:
-                sans.update(_plain(san) for san in line)
-                squares.update(
-                    chess.square_name(square)
-                    for move in moves
-                    for square in (move.from_square, move.to_square)
-                )
-                break
-    return sans, squares
+            replayed = _replay(line, start)
+            if replayed is None:
+                continue
+            moves, boards = replayed
+            verified.sans.update(_plain(san) for san in line)
+            verified.squares.update(
+                chess.square_name(square)
+                for move in moves
+                for square in (move.from_square, move.to_square)
+            )
+            for board in boards:
+                _record_pieces(board, verified.pieces)
+            break
+    return verified
+
+
+def _record_pieces(board: chess.Board, seen: dict[str, set[str]]) -> None:
+    for square, piece in board.piece_map().items():
+        seen.setdefault(chess.square_name(square), set()).add(chess.piece_name(piece.piece_type))
 
 
 def _cited_squares(cited: list[Fact]) -> set[str]:
@@ -183,7 +228,15 @@ def _error(kind: GroundingErrorKind, message: str) -> GroundingError:
 
 def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingError]:
     shown = {fact.id: fact for fact in visible_facts(context)}
-    errors = [
+    errors: list[GroundingError] = []
+    if _CORRECTION_OPENING.search(reply.text) or _CORRECTION_WORDING.search(reply.text):
+        errors.append(
+            _error(
+                GroundingErrorKind.META_COMMENTARY,
+                "Your reply talks about a correction. Write only the coaching message itself.",
+            )
+        )
+    errors += [
         _error(
             GroundingErrorKind.UNKNOWN_FACT,
             f"Your reply cited fact id {fact_id!r}, which does not exist. Cite only given ids.",
@@ -196,7 +249,12 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
     mentioned_moves = [match.group() for match in _SAN.finditer(text)]
     bare_text = _SAN.sub(" ", text)
 
-    if context.active_pre_lock_in and context.best_move_san:
+    # The student's own proposed move may be named even when it happens to be the best one.
+    if (
+        context.active_pre_lock_in
+        and context.best_move_san
+        and _plain(context.best_move_san) != _plain(context.move_san)
+    ):
         best = re.escape(_plain(context.best_move_san))
         if re.search(rf"(?<![\w-]){best}[+#]?(?!\w)", text):
             errors.append(
@@ -207,9 +265,10 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
                 )
             )
 
-    verified, move_squares = _verified_references(cited, context)
-    for move in mentioned_moves:
-        if _plain(move) not in verified:
+    verified = _verified_references(cited, context)
+    moves_by_wording = {m.group(1) for m in _MOVE_WORDING.finditer(bare_text)}
+    for move in [*mentioned_moves, *sorted(moves_by_wording)]:
+        if _plain(move) not in verified.sans:
             errors.append(
                 _error(
                     GroundingErrorKind.UNVERIFIED_MOVE,
@@ -218,9 +277,11 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
                 )
             )
 
-    squares = _cited_squares(cited) | move_squares
+    squares = _cited_squares(cited) | verified.squares
     for square in dict.fromkeys(_SQUARE_TOKEN.findall(bare_text)):
-        if square not in squares and square not in verified:
+        if square in moves_by_wording:
+            continue  # already judged as a move
+        if square not in squares and square not in verified.sans:
             errors.append(
                 _error(
                     GroundingErrorKind.UNCITED_SQUARE,
@@ -229,16 +290,21 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
                 )
             )
 
-    pieces = _cited_pieces(cited)
-    for name, square in _PIECE_ON_SQUARE.findall(bare_text):
-        types_there = {piece.piece_type for piece in pieces if piece.square == square}
-        if types_there and name.lower() not in types_there:
+    cited_types: dict[str, set[str]] = {}
+    for piece in _cited_pieces(cited):
+        cited_types.setdefault(piece.square, set()).add(piece.piece_type)
+    claims = [*_PIECE_ON_SQUARE.findall(bare_text)] + [
+        (name, square) for square, name in _SQUARE_THEN_PIECE.findall(bare_text)
+    ]
+    for name, square in claims:
+        types_there = cited_types.get(square, set()) | verified.pieces.get(square, set())
+        if name.lower() not in types_there:
+            found = f"a {' or '.join(sorted(types_there))}" if types_there else "no piece"
             errors.append(
                 _error(
                     GroundingErrorKind.PIECE_MISMATCH,
-                    f"Your reply put a {name.lower()} on {square}, but the cited facts have a "
-                    f"{' or '.join(sorted(types_there))} there. Rewrite it using only the cited "
-                    "facts.",
+                    f"Your reply put a {name.lower()} on {square}, but the position has {found} "
+                    "there. Rewrite it using only the cited facts.",
                 )
             )
     return errors
@@ -250,9 +316,9 @@ def _describe(pieces: list[PieceRef]) -> str:
 
 def _fact_template(fact: Fact, context: CoachContext, level: int | None) -> str:
     line = fact.san_lines[0] if fact.san_lines else []
-    if fact.type is FactType.ALLOWS and line:
+    if level != 2 and fact.type is FactType.ALLOWS and line:
         return f"Careful: after {context.move_san}, your opponent has {line[0]}."
-    if fact.type is FactType.IGNORED_THREAT and line:
+    if level != 2 and fact.type is FactType.IGNORED_THREAT and line:
         return (
             f"Careful: your opponent threatens {line[0]}, "
             f"and {context.move_san} did not deal with it."
@@ -282,8 +348,14 @@ def template_reply(context: CoachContext) -> CoachReply:
     )
 
 
-def _feedback(errors: list[GroundingError]) -> str:
-    return " ".join(error.message for error in errors)
+def _correction(draft: CoachReply, errors: list[GroundingError]) -> str:
+    """An operator instruction: the draft stays inside it so the model never answers a 'user'."""
+    problems = " ".join(error.message for error in errors)
+    return (
+        f"Your previous coaching reply was: {draft.model_dump_json()}\n"
+        f"Rewrite your previous coaching reply. Problems: {problems} "
+        "Output only the corrected reply for the student; never refer to this correction."
+    )
 
 
 async def coach_reply_with_grounding(model: LanguageModel, context: CoachContext) -> GroundedReply:
@@ -306,8 +378,7 @@ async def coach_reply_with_grounding(model: LanguageModel, context: CoachContext
             system=system,
             messages=[
                 *messages,
-                ChatMessage("assistant", first.parsed.model_dump_json()),
-                ChatMessage("user", _feedback(errors)),
+                ChatMessage("system", _correction(first.parsed, errors)),
             ],
             schema=CoachReply,
         )

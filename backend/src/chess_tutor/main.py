@@ -19,6 +19,7 @@ from chess_tutor.database import create_database_engine, run_migrations, seed_de
 from chess_tutor.engines.human_moves import HumanMovePredictor
 from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.routing import build_opponent
+from chess_tutor.engines.steering import SteeringOpponent, focus_concepts_of_first_player
 from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.service import GameService
@@ -89,19 +90,32 @@ def create_app(
             engine.dispose()
             return
         predictor = HumanMovePredictor.from_settings(settings) if settings.maia_enabled else None
+        pool = StockfishPool(settings.stockfish_path, settings.stockfish_pool_size)  # shared
+        if predictor is not None and settings.opponent_steering_enabled:
+            game_opponent = SteeringOpponent(
+                game_opponent,
+                predictor,
+                pool,
+                lambda: focus_concepts_of_first_player(engine),
+                settings.opponent_steering_rate,
+                settings.opponent_steering_max_eval_loss_centipawns,
+                max_steered_elo=settings.opponent_stockfish_above_elo,
+            )
+        app.state.opponent = game_opponent
         try:
             await game_opponent.start()
             if predictor is not None:
                 await predictor.start()
+            await pool.start()
         except Exception:
             await game_opponent.close()
             if predictor is not None:
                 await predictor.close()
+            await pool.close()
             engine.dispose()
             raise
         pacing = None if predictor is None else OpponentPacing(settings, predictor)
         app.state.game_service = GameService(engine, game_opponent, pacing, settings.thresholds)
-        pool = StockfishPool(settings.stockfish_path, settings.stockfish_pool_size)
         passive_coach = PassiveCoach(
             engine,
             pool,
@@ -111,7 +125,6 @@ def create_app(
         )
         app.state.passive_coach = passive_coach
         try:
-            await pool.start()
             yield
         finally:
             await passive_coach.close()
