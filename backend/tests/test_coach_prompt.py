@@ -118,7 +118,9 @@ def test_facts_naming_the_best_move_anywhere_are_dropped(fact_fields: dict[str, 
 
 
 def test_a_similar_looking_summary_is_kept() -> None:
-    sent = everything_sent(leaky_fact_context(summary="the Nc70 square, Nc7x and ANc7 are not moves"))
+    sent = everything_sent(
+        leaky_fact_context(summary="the Nc70 square, Nc7x and ANc7 are not moves")
+    )
 
     assert "leaky:1" in sent
 
