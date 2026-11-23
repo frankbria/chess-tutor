@@ -24,8 +24,9 @@ make lint                # every package's lint, format and type checks
 | `CHESS_TUTOR_BACKEND_PORT` | `8000` | Backend port (also used by `make dev`) |
 | `FRONTEND_PORT` | `3000` | Frontend port (`make dev` only) |
 | `CHESS_TUTOR_BACKEND_HOST` | `127.0.0.1` | Backend bind host |
+| `DEV_HOST` / `PUBLIC_HOST` | `127.0.0.1` / empty | Frontend bind interface, and the address a phone uses (`make dev` only; see [phone access](docs/phone-access.md)) |
 | `CHESS_TUTOR_FRONTEND_ORIGINS` | localhost/127.0.0.1 on `FRONTEND_PORT` | JSON list of CORS origins |
-| `NEXT_PUBLIC_API_BASE_URL` | `http://127.0.0.1:<backend port>` | API URL the frontend calls |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://127.0.0.1:<backend port>`, or `/api` when `PUBLIC_HOST` is set | API URL the frontend calls |
 | `CHESS_TUTOR_DATABASE_PATH` | `<repo>/data/chess_tutor.db` | SQLite file (`data/` is gitignored) |
 | `CHESS_TUTOR_STOCKFISH_PATH` | `/usr/games/stockfish` | Stockfish binary |
 | `CHESS_TUTOR_MAIA_COMMAND` | `maia3-uci` | Maia-3 UCI executable |
@@ -75,7 +76,7 @@ npm test             # vitest + Testing Library
 npm run lint && npm run typecheck && npm run build
 ```
 
-The app is an installable PWA. Browsers only offer install on `localhost` or over HTTPS, so to install on a phone, serve it over HTTPS (for example `tailscale serve`). Plain `http://` on the LAN loads the app but won't offer install.
+The app is an installable PWA. Browsers only offer install on `localhost` or over HTTPS, so to install on a phone, serve it over HTTPS with `tailscale serve`. Plain `http://` on the LAN loads the app but won't offer install. Setup, install steps and troubleshooting: [docs/phone-access.md](docs/phone-access.md).
 
 ## Contributing
 
