@@ -10,7 +10,12 @@ from chess_tutor.settings import Settings
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    return Settings(_env_file=None, llm_provider="none", database_path=tmp_path / "db" / "t.db")
+    return Settings(
+        _env_file=None,
+        llm_provider="none",
+        database_path=tmp_path / "db" / "t.db",
+        maia_enabled=False,
+    )
 
 
 @pytest.fixture
