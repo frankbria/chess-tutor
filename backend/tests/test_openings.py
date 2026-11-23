@@ -103,7 +103,21 @@ def test_every_phase_has_a_focus_list() -> None:
 
 def test_in_book_position_is_opening_even_when_developed() -> None:
     board = board_after(
-        *"a3 e5 b3 d5 c3 Nf6 d3 Nc6 e3 Bd6 f3 O-O g3".split()  # Hippopotamus Attack
+        *[
+            "a3",
+            "e5",
+            "b3",
+            "d5",
+            "c3",
+            "Nf6",
+            "d3",
+            "Nc6",
+            "e3",
+            "Bd6",
+            "f3",
+            "O-O",
+            "g3",
+        ]  # Hippopotamus Attack
     )
     assert lookup_opening(board) is not None
     assert detect_phase(board, PhaseThresholds(opening_max_move=0)) is GamePhase.OPENING
