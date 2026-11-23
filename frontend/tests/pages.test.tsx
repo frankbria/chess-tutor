@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { prerender } from "react-dom/static";
 import type { ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -58,6 +58,7 @@ describe("route placeholders", () => {
   it("progress and settings render their headings", () => {
     render(<ProgressPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Progress" })).toBeInTheDocument();
+    cleanup();
     render(<SettingsPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
   });
