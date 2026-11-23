@@ -243,15 +243,18 @@ async def play_move(
 ) -> GameResponse:
     plies_before = len(service.get_board(game_id).move_stack)
     game = await service.play_move(game_id, body.uci)
-    if game.mode is GameMode.PASSIVE:
-        coach.schedule(game_id, plies_before + 1)
+    if game.status is GameStatus.FINISHED:
+        await coach.wait_for_game(
+            game_id
+        )  # the final comment must reach the stream before it closes
     publish_after_move(service, events, game, plies_before)
     return describe(service, game)
 
 
 @router.post("/{game_id}/resign")
-async def resign(game_id: int, service: Service, events: Events) -> GameResponse:
+async def resign(game_id: int, service: Service, events: Events, coach: Coach) -> GameResponse:
     game = service.resign(game_id)
+    await coach.wait_for_game(game_id)
     events.publish(game_id, game_over_event(service.get_board(game_id), game))
     return describe(service, game)
 

@@ -127,18 +127,15 @@ def test_api_defaults_opponent_elo_and_returns_performance(settings: Settings) -
         assert (game["accuracy"], game["performance_rating"]) == (None, None)
         api.post(f"/games/{game['id']}/moves", json={"uci": "g1f3"})
         api.post(f"/games/{game['id']}/moves", json={"uci": "b1c3"})
-        set_evals(app.state.engine, game["id"], {1: (50.0, 50.0), 3: (50.0, 50.0)})
-        api.post(f"/games/{game['id']}/resign")
+        api.post(f"/games/{game['id']}/resign")  # waits for the passive coach to score the moves
         finished = api.get(f"/games/{game['id']}").json()
         history = api.get("/player/rating-history").json()
 
-    expected = performance_rating(900, PERFECT)
-    assert (finished["accuracy"], finished["performance_rating"]) == (
-        pytest.approx(PERFECT),
-        expected,
-    )
+    assert finished["accuracy"] is not None
+    expected = performance_rating(900, finished["accuracy"])
+    assert finished["performance_rating"] == expected
     assert (history[0]["accuracy"], history[0]["performance_rating"]) == (
-        pytest.approx(PERFECT),
+        pytest.approx(finished["accuracy"]),
         expected,
     )
 

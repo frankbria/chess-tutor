@@ -20,6 +20,7 @@ from chess_tutor.api.events import CoachCommentEvent, GameEvents
 from chess_tutor.coach.grounding import coach_reply_with_grounding
 from chess_tutor.coach.llm import LanguageModel, record_llm_cost
 from chess_tutor.coach.prompt import RECENT_MESSAGES_SHOWN, CoachContext, CoachEvent
+from chess_tutor.concepts.state import refresh_concept_states
 from chess_tutor.concepts.tagger import record_concepts, tag_mistake
 from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.facts.packet import build_fact_packet
@@ -67,17 +68,28 @@ class PassiveCoach:
         self._model = model
         self._events = events
         self._settings = settings
-        self._tasks: set[asyncio.Task[None]] = set()
-        # Moves are coached in order, so the rate limit and the recent-messages context are exact.
-        self._in_order = asyncio.Lock()
+        self._tasks: dict[asyncio.Task[None], int] = {}  # task -> game id
+        # Per game, so one stalled LLM call cannot hold up another game; within a game moves are
+        # coached in order, which keeps the rate limit and the recent-messages context exact.
+        self._in_order: dict[int, asyncio.Lock] = {}
+
+    def player_moved(self, game: Game, ply: int) -> None:
+        if game.mode is GameMode.PASSIVE:
+            self.schedule(game.id, ply)
+
+    def is_coaching(self, game_id: int) -> bool:
+        return game_id in self._tasks.values()
 
     def schedule(self, game_id: int, ply: int) -> None:
         task = asyncio.create_task(self._run(game_id, ply))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._tasks[task] = game_id
+        task.add_done_callback(lambda done: self._tasks.pop(done, None))
 
     async def wait_until_idle(self) -> None:
         await asyncio.gather(*self._tasks)
+
+    async def wait_for_game(self, game_id: int) -> None:
+        await asyncio.gather(*(task for task, game in self._tasks.items() if game == game_id))
 
     async def close(self) -> None:
         for task in self._tasks:
@@ -86,11 +98,31 @@ class PassiveCoach:
 
     async def _run(self, game_id: int, ply: int) -> None:
         try:
-            async with self._in_order:
+            async with self._in_order.setdefault(game_id, asyncio.Lock()):
                 await self.coach_move(game_id, ply)
         # A background task has no caller to tell: log it, and never let it touch the game.
         except Exception:
             logger.exception("passive coaching failed for game %s ply %s", game_id, ply)
+        finally:
+            self._finish_game_if_last(game_id)
+
+    def _finish_game_if_last(self, game_id: int) -> None:
+        """A game that ended while its moves were being coached gets its concept states now."""
+        current = asyncio.current_task()
+        if any(task is not current and game == game_id for task, game in self._tasks.items()):
+            return
+        self._in_order.pop(game_id, None)
+        with Session(self._engine) as session:
+            game = session.get_one(Game, game_id)
+            if game.status is GameStatus.FINISHED and game.ended_at is not None:
+                refresh_concept_states(
+                    session,
+                    game.player_id,
+                    game_id,
+                    game.ended_at,
+                    self._settings.thresholds.concept_state,
+                )
+                session.commit()
 
     async def coach_move(self, game_id: int, ply: int) -> None:
         """Classify the player's move at `ply`, tag its concepts, and comment if it is notable."""

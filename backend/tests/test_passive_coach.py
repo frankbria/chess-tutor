@@ -22,13 +22,20 @@ from chess_tutor.coach.llm import (
 )
 from chess_tutor.coach.prompt import CoachReply
 from chess_tutor.main import create_app
-from chess_tutor.models import CoachMessage, ConceptEvent, Game, Move
+from chess_tutor.models import CoachMessage, ConceptEvent, ConceptState, Game, Move
 from chess_tutor.settings import Settings
 
 # 1.e4 e5 2.Nf3 Nc6 3.Bc4 Nf6 4.Nxe5?? Nxe5 5.Bxf7+? Kxf7: the 4th and 5th moves are notable.
 OPPONENT_REPLIES = ("e5", "Nc6", "Nf6", "Nxe5", "Kxf7")
 PLAYER_MOVES = ("e2e4", "g1f3", "f1c4", "f3e5", "c4f7")
-COMMENT = CoachReply(text="That hands your opponent a piece, so look before you grab.", fact_ids=[])
+COMMENT = CoachReply(
+    text="Nxe5 wins a pawn, but Black recaptures with Nxe5 and then your bishop on c4 hangs.",
+    fact_ids=["allows:c6e5"],
+)
+GENERIC = CoachReply(
+    text="Another piece given away; check what each move leaves hanging.", fact_ids=[]
+)
+UNGROUNDED = CoachReply(text="Nxe5 loses a piece to Qd8.", fact_ids=["made_up:id"])
 PRICED = Usage(model="claude-sonnet-5-5", input_tokens=1000, output_tokens=100)
 
 
@@ -104,7 +111,8 @@ def test_a_blunder_gets_a_grounded_comment(settings: Settings) -> None:
 
         [stored] = harness.comments()
         assert (stored.ply, stored.role.value, stored.kind.value) == (7, "coach", "comment")
-        assert (stored.text, stored.fact_ids, stored.source.value) == (COMMENT.text, "[]", "llm")
+        assert (stored.text, stored.source.value) == (COMMENT.text, "llm")
+        assert stored.fact_ids == '["allows:c6e5"]'
         with Session(harness.app.state.engine) as session:
             game = session.get_one(Game, harness.game_id)
             move = session.scalars(select(Move).where(Move.game_id == game.id, Move.ply == 7)).one()
@@ -114,7 +122,7 @@ def test_a_blunder_gets_a_grounded_comment(settings: Settings) -> None:
         assert concepts and stored.concepts != "[]"
         [event] = [e for e in harness.events() if isinstance(e, CoachCommentEvent)]
         assert (event.ply, event.text, event.classification) == (7, COMMENT.text, "blunder")
-        assert (event.fact_ids, event.source) == ([], "llm")
+        assert (event.fact_ids, event.source) == (["allows:c6e5"], "llm")
     [call] = model.calls
     assert (
         call.tier is ModelTier.COACHING and '"event":"comment_on_move"' in call.messages[0].content
@@ -179,7 +187,7 @@ def test_comments_are_rate_limited(settings: Settings) -> None:
 
 
 def test_every_notable_move_is_commented_by_default(settings: Settings) -> None:
-    with started(settings, scripted(COMMENT, COMMENT)) as harness:
+    with started(settings, scripted(COMMENT, GENERIC)) as harness:
         harness.play(5)
 
         assert [stored.ply for stored in harness.comments()] == [7, 9]
@@ -192,8 +200,43 @@ def test_a_game_that_ends_before_its_last_move_is_scored_still_gets_an_accuracy(
         game = f"/games/{harness.game_id}"
         harness.api.post(f"{game}/moves", json={"uci": PLAYER_MOVES[0]})
         harness.api.post(f"{game}/resign")  # long before Stockfish has answered
-        assert harness.api.get(f"/games/{harness.game_id}").json()["accuracy"] is None
-        assert harness.api.portal is not None
-        harness.api.portal.call(harness.app.state.passive_coach.wait_until_idle)
-
         assert harness.api.get(f"/games/{harness.game_id}").json()["accuracy"] is not None
+
+
+def test_an_ungrounded_reply_is_rejected_and_regenerated(settings: Settings) -> None:
+    model = scripted(UNGROUNDED, COMMENT)
+    with started(settings, model) as harness:
+        harness.play(4)
+
+        [stored] = harness.comments()
+        assert (stored.text, stored.source.value) == (COMMENT.text, "llm_regenerated")
+    assert len(model.calls) == 2
+
+
+def test_a_move_is_coached_even_when_the_opponent_fails_to_reply(settings: Settings) -> None:
+    model = scripted(COMMENT)
+    app = create_app(settings, ScriptedOpponent("e5", "Nc6", "Nf6"), model)
+    with TestClient(app) as api:
+        game_id = api.post(
+            "/games", json={"mode": "passive", "color": "white", "opponent_elo": 1200}
+        ).json()["id"]
+        for uci in PLAYER_MOVES[:3]:
+            assert api.post(f"/games/{game_id}/moves", json={"uci": uci}).status_code == 200
+        assert api.post(f"/games/{game_id}/moves", json={"uci": "f3e5"}).status_code == 503
+        assert api.portal is not None
+        api.portal.call(app.state.passive_coach.wait_until_idle)
+
+        with Session(app.state.engine) as session:
+            assert session.scalars(select(CoachMessage.ply)).all() == [7]
+
+
+def test_the_final_comment_and_concepts_land_before_the_game_closes(settings: Settings) -> None:
+    with started(settings, scripted(COMMENT)) as harness:
+        game = f"/games/{harness.game_id}"
+        for uci in PLAYER_MOVES[:4]:
+            harness.api.post(f"{game}/moves", json={"uci": uci})
+        harness.api.post(f"{game}/resign")  # while the last move is still being coached
+
+        assert [event.type for event in harness.events()][-2:] == ["coach_comment", "game_over"]
+        with Session(harness.app.state.engine) as session:
+            assert session.scalars(select(ConceptState.concept)).all()

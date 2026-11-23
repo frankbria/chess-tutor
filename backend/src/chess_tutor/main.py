@@ -115,13 +115,15 @@ def create_app(
             engine.dispose()
             raise
         pacing = None if predictor is None else OpponentPacing(settings, predictor)
-        app.state.game_service = GameService(engine, game_opponent, pacing, settings.thresholds)
         passive_coach = PassiveCoach(
             engine,
             pool,
             language_model or create_language_model(settings),
             app.state.game_events,
             settings,
+        )
+        app.state.game_service = GameService(
+            engine, game_opponent, pacing, settings.thresholds, observer=passive_coach
         )
         app.state.passive_coach = passive_coach
         try:
