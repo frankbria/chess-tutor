@@ -95,3 +95,6 @@ class Move(Base):
     san: Mapped[str]
     uci: Mapped[str]
     fen_before: Mapped[str]
+    classification: Mapped[str | None] = mapped_column(default=None)
+    eval_before: Mapped[float | None] = mapped_column(default=None)  # mover's win probability
+    eval_after: Mapped[float | None] = mapped_column(default=None)
