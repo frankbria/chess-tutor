@@ -19,6 +19,7 @@ from chess_tutor.analysis.recording import classify_stored_move
 from chess_tutor.api.events import CoachCommentEvent, GameEvents
 from chess_tutor.coach.grounding import coach_reply_with_grounding
 from chess_tutor.coach.llm import LanguageModel, record_llm_cost
+from chess_tutor.coach.profile import build_coach_profile, stored_phrasings
 from chess_tutor.coach.prompt import RECENT_MESSAGES_SHOWN, CoachContext, CoachEvent
 from chess_tutor.concepts.state import refresh_concept_states
 from chess_tutor.concepts.tagger import record_concepts, tag_mistake
@@ -160,6 +161,10 @@ class PassiveCoach:
             session.commit()
         if self._model is None or not self._due(game_id, ply):
             return
+        with Session(self._engine) as session:
+            profile = build_coach_profile(
+                session, player_id, concepts, stored_phrasings(session, player_id)
+            )
         context = CoachContext(
             mode=GameMode.PASSIVE,
             active_pre_lock_in=False,
@@ -170,6 +175,7 @@ class PassiveCoach:
             move_delta_facts=delta.facts,
             best_move_san=delta.best_move_san,
             best_line=delta.best_line,
+            profile=profile,
             recent_coach_messages=self._recent_texts(game_id),
         )
         reply = await coach_reply_with_grounding(self._model, context)
