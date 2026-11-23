@@ -1,7 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { LobbyApiProvider } from "@/components/lobby/lobby-api-context";
+import { defaultElo, labelFor, MODES } from "@/components/lobby/game-options";
 import { NewGameDialog } from "@/components/lobby/new-game-dialog";
 import { ResumeList } from "@/components/lobby/resume-list";
 import { ApiError, type GameState, type LobbyApi, type NewGame } from "@/lib/game-api";
@@ -39,9 +42,15 @@ function fakeApi(overrides: Partial<LobbyApi> = {}) {
   return { api, created };
 }
 
+export function wrapperFor(api: LobbyApi) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return <LobbyApiProvider api={api}>{children}</LobbyApiProvider>;
+  };
+}
+
 async function openDialog(api: LobbyApi) {
   const user = userEvent.setup();
-  render(<NewGameDialog api={api} />);
+  render(<NewGameDialog />, { wrapper: wrapperFor(api) });
   await user.click(screen.getByRole("button", { name: "Play" }));
   await screen.findByText("1350");
   return user;
@@ -104,15 +113,41 @@ describe("NewGameDialog", () => {
       },
     });
     const user = userEvent.setup();
-    render(<NewGameDialog api={api} />);
+    render(<NewGameDialog />, { wrapper: wrapperFor(api) });
     await user.click(screen.getByRole("button", { name: "Play" }));
     await waitFor(() => expect(screen.getByLabelText("Opponent Elo")).toHaveValue("1200"));
+  });
+
+  it("submits the Elo chosen on the slider", async () => {
+    const { api, created } = fakeApi();
+    const user = await openDialog(api);
+    fireEvent.change(screen.getByLabelText("Opponent Elo"), { target: { value: "2000" } });
+    await user.click(screen.getByRole("button", { name: "Start game" }));
+    expect(created[0].opponent_elo).toBe(2000);
+  });
+
+  it("retries loading the rating on the next open after a failure", async () => {
+    let calls = 0;
+    const { api } = fakeApi({
+      getPlayer: async () => {
+        calls += 1;
+        if (calls === 1) throw new ApiError(500, "boom");
+        return { rating: 1337 };
+      },
+    });
+    const user = userEvent.setup();
+    render(<NewGameDialog />, { wrapper: wrapperFor(api) });
+    await user.click(screen.getByRole("button", { name: "Play" }));
+    await waitFor(() => expect(screen.getByLabelText("Opponent Elo")).toHaveValue("1200"));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: "Play" }));
+    await waitFor(() => expect(screen.getByLabelText("Opponent Elo")).toHaveValue("1350"));
   });
 
   it("clamps the default Elo to the allowed range", async () => {
     const { api } = fakeApi({ getPlayer: async () => ({ rating: 100 }) });
     const user = userEvent.setup();
-    render(<NewGameDialog api={api} />);
+    render(<NewGameDialog />, { wrapper: wrapperFor(api) });
     await user.click(screen.getByRole("button", { name: "Play" }));
     await waitFor(() => expect(screen.getByLabelText("Opponent Elo")).toHaveValue("400"));
   });
@@ -137,7 +172,7 @@ describe("ResumeList", () => {
         game({ id: 9, mode: "regular", moves: ["d4"] }),
       ],
     });
-    render(<ResumeList api={api} />);
+    render(<ResumeList />, { wrapper: wrapperFor(api) });
     expect(await screen.findByText("Passive tutor, Black")).toBeInTheDocument();
     expect(screen.getByText("Elo 1500, 3 moves")).toBeInTheDocument();
     expect(screen.getByText("Elo 1500, 1 move")).toBeInTheDocument();
@@ -146,7 +181,7 @@ describe("ResumeList", () => {
   });
 
   it("shows an empty state", async () => {
-    render(<ResumeList api={fakeApi().api} />);
+    render(<ResumeList />, { wrapper: wrapperFor(fakeApi().api) });
     expect(await screen.findByText(/No unfinished games/)).toBeInTheDocument();
   });
 
@@ -156,7 +191,18 @@ describe("ResumeList", () => {
         throw new ApiError(500, "boom");
       },
     });
-    render(<ResumeList api={api} />);
+    render(<ResumeList />, { wrapper: wrapperFor(api) });
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not load your games");
+  });
+});
+
+describe("game options", () => {
+  it("clamps the default Elo to the top of the range", () => {
+    expect(defaultElo(3400)).toBe(3000);
+  });
+
+  it("labels known values and falls back to the raw value", () => {
+    expect(labelFor(MODES, "passive")).toBe("Passive tutor");
+    expect(labelFor(MODES, "unknown" as "regular")).toBe("unknown");
   });
 });

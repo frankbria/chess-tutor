@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import { httpLobbyApi, type GameState, type LobbyApi } from "@/lib/game-api";
+import type { GameState } from "@/lib/game-api";
 
+import { useLobbyApi } from "./lobby-api-context";
 import { COLORS, labelFor, MODES } from "./game-options";
 
-export function ResumeList({ api = httpLobbyApi }: { api?: LobbyApi }) {
+export function ResumeList() {
+  const api = useLobbyApi();
   const [games, setGames] = useState<GameState[] | null>(null);
   const [failed, setFailed] = useState(false);
 

@@ -5,8 +5,9 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
-import { ApiError, httpLobbyApi, type ColorChoice, type GameMode, type LobbyApi } from "@/lib/game-api";
+import { ApiError, type ColorChoice, type GameMode } from "@/lib/game-api";
 
+import { useLobbyApi } from "./lobby-api-context";
 import {
   COLORS,
   defaultElo,
@@ -20,26 +21,37 @@ import {
 const choiceClass =
   "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-all has-[:checked]:border-primary has-[:checked]:bg-primary/10 has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-ring/50";
 
-export function NewGameDialog({ api = httpLobbyApi }: { api?: LobbyApi }) {
+export function NewGameDialog() {
+  const api = useLobbyApi();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<GameMode>("regular");
   const [color, setColor] = useState<ColorChoice>("random");
   const [elo, setElo] = useState<number | null>(null);
+  const [ratingLoaded, setRatingLoaded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || ratingLoaded) return;
     let current = true;
     api
       .getPlayer()
-      .then((player) => current && setElo((previous) => previous ?? defaultElo(player.rating)))
+      .then((player) => {
+        if (!current) return;
+        setRatingLoaded(true);
+        setElo((previous) => previous ?? defaultElo(player.rating));
+      })
       .catch(() => current && setElo((previous) => previous ?? FALLBACK_ELO));
     return () => {
       current = false;
     };
-  }, [open, api]);
+  }, [open, api, ratingLoaded]);
+
+  function openDialog() {
+    if (!ratingLoaded) setElo(null); // a fallback Elo from a failed load must not stick; reload it
+    setOpen(true);
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -57,7 +69,7 @@ export function NewGameDialog({ api = httpLobbyApi }: { api?: LobbyApi }) {
 
   return (
     <>
-      <Button size="lg" className="w-full max-w-xs" onClick={() => setOpen(true)}>
+      <Button size="lg" className="w-full max-w-xs" onClick={openDialog}>
         Play
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
