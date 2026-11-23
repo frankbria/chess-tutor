@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import chess
 import pytest
 
 from chess_tutor.openings import PHASE_FOCUS, GamePhase, Opening, detect_phase, lookup_opening
+from chess_tutor.openings.book import opening_index
 from chess_tutor.settings import PhaseThresholds
 
 THRESHOLDS = PhaseThresholds()
@@ -40,8 +43,13 @@ def test_opening_name_survives_leaving_book() -> None:
     out_of_book = lookup_opening(
         board_after("e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Ba4", "Nf6", "O-O", "Be7", "h3", "h6")
     )
-    assert in_book is not None and out_of_book is not None
-    assert out_of_book.name.startswith("Ruy Lopez")
+    assert in_book == Opening("C60", "Ruy Lopez")
+    assert out_of_book is not None
+    last_in_book = lookup_opening(
+        board_after("e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Ba4", "Nf6", "O-O", "Be7")
+    )
+    assert last_in_book is not None
+    assert out_of_book == last_in_book
 
 
 def test_opening_phase_while_in_book() -> None:
@@ -121,3 +129,8 @@ def test_in_book_position_is_opening_even_when_developed() -> None:
     )
     assert lookup_opening(board) is not None
     assert detect_phase(board, PhaseThresholds(opening_max_move=0)) is GamePhase.OPENING
+
+
+def test_empty_book_directory_fails_loudly(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="book data is missing"):
+        opening_index(tmp_path)

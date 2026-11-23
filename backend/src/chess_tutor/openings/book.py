@@ -14,13 +14,15 @@ class Opening(NamedTuple):
 
 
 def position_key(board: chess.Board) -> str:
-    return board.epd()  # EPD omits the move counters, so transpositions match
+    # EPD omits the move counters, so transpositions match; index and lookup both use epd(),
+    # so the en-passant field is encoded the same way on both sides.
+    return board.epd()
 
 
 @lru_cache(maxsize=1)
-def opening_index() -> dict[str, Opening]:
+def opening_index(data_directory: Path = DATA_DIRECTORY) -> dict[str, Opening]:
     index: dict[str, Opening] = {}
-    for table in sorted(DATA_DIRECTORY.glob("*.tsv")):
+    for table in sorted(data_directory.glob("*.tsv")):
         with table.open(encoding="utf-8", newline="") as handle:
             for row in csv.DictReader(handle, delimiter="\t"):
                 board = chess.Board()
@@ -28,6 +30,8 @@ def opening_index() -> dict[str, Opening]:
                     if not token.endswith("."):
                         board.push_san(token)
                 index.setdefault(position_key(board), Opening(row["eco"], row["name"]))
+    if not index:
+        raise RuntimeError(f"no openings found in {data_directory}: the book data is missing")
     return index
 
 
