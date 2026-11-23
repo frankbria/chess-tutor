@@ -1,0 +1,76 @@
+import { API_BASE_URL } from "@/lib/api";
+
+export type PlayerColor = "white" | "black";
+export type GameResult = "1-0" | "0-1" | "1/2-1/2";
+
+export interface GameState {
+  id: number;
+  mode: string;
+  player_color: PlayerColor;
+  status: "active" | "finished";
+  result: GameResult | null;
+  fen: string;
+  moves: string[];
+  side_to_move: PlayerColor;
+  legal_moves: string[];
+}
+
+export interface GameStreamHandlers {
+  onSnapshot: (event: { fen: string; status: string }) => void;
+  onOpponentMove: (event: { uci: string; san: string; fen: string }) => void;
+  onGameOver: (event: { result: GameResult; reason: string }) => void;
+}
+
+/** What the play screen needs from the backend; tests supply their own implementation. */
+export interface GameApi {
+  getGame(id: number): Promise<GameState>;
+  playMove(id: number, uci: string): Promise<GameState>;
+  resign(id: number): Promise<GameState>;
+  /** Returns the unsubscribe function. */
+  subscribe(id: number, handlers: GameStreamHandlers): () => void;
+}
+
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function request(path: string, method: "GET" | "POST", body?: object): Promise<GameState> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    cache: "no-store",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    const detail =
+      payload && typeof payload === "object" && "detail" in payload && typeof payload.detail === "string"
+        ? payload.detail
+        : response.statusText;
+    throw new ApiError(response.status, detail);
+  }
+  return (await response.json()) as GameState;
+}
+
+export const httpGameApi: GameApi = {
+  getGame: (id) => request(`/games/${id}`, "GET"),
+  playMove: (id, uci) => request(`/games/${id}/moves`, "POST", { uci }),
+  resign: (id) => request(`/games/${id}/resign`, "POST"),
+  subscribe(id, handlers) {
+    const source = new EventSource(`${API_BASE_URL}/games/${id}/coach/stream`);
+    const listen = <T,>(name: string, handle: (event: T) => void) =>
+      source.addEventListener(name, (message) => handle(JSON.parse((message as MessageEvent<string>).data) as T));
+    listen("snapshot", handlers.onSnapshot);
+    listen("opponent_move", handlers.onOpponentMove);
+    listen("game_over", (event: { result: GameResult; reason: string }) => {
+      handlers.onGameOver(event);
+      source.close();
+    });
+    return () => source.close();
+  },
+};

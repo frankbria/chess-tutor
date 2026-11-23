@@ -1,0 +1,17 @@
+/* Violet board to match the app palette; the piece set comes from chessground.cburnett.css. */
+cg-board {
+  background-color: #efe9ff;
+  background-image:
+    conic-gradient(#7c5ce0 25%, transparent 0 50%, #7c5ce0 0 75%, transparent 0);
+  background-size: 25% 25%;
+  border-radius: 0.75rem;
+}
+cg-board square.last-move {
+  background-color: rgb(245 176 65 / 0.55);
+}
+cg-board square.move-dest {
+  background: radial-gradient(rgb(34 160 107 / 0.6) 22%, transparent 0, transparent 0, transparent 0);
+}
+cg-board square.move-dest:hover {
+  background: rgb(34 160 107 / 0.45);
+}
