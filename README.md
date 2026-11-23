@@ -40,7 +40,7 @@ Install the git hooks once per clone (requires [pre-commit](https://pre-commit.c
 
 ```bash
 pre-commit install
-pre-commit run --all-files   # ruff, black, mypy, eslint, tsc, secrets and file hygiene
+pre-commit run --all-files   # ruff, black, mypy, eslint, tsc, gitleaks secrets scan, file hygiene (CI runs these too)
 ```
 
 CI (`.github/workflows/ci.yml`) runs the same checks plus tests and the frontend build on every PR.
