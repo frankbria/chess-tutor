@@ -138,13 +138,11 @@ describe("ProgressView", () => {
 
   it("groups concepts by state with focus first and exact lichess practice links", async () => {
     renderView([entry(800, 805)], undefined, [
-      concept("hanging_piece", "focus", 4, 2.5, [
-        "hangingPiece",
-        "trappedPiece",
-      ]),
-      concept("fork_missed", "recurring", 2, 0.5, ["fork"]),
+      // Themes as the backend taxonomy maps them (concepts/taxonomy.py).
+      concept("hanging_piece", "focus", 4, 2.5, ["hangingPiece"]),
+      concept("missed_fork", "recurring", 2, 0.5, ["fork"]),
       concept("back_rank", "improving", 3, 0.2, ["backRankMate"]),
-      concept("pin", "new", 1, 1, ["pin"]),
+      concept("pin_blindness", "new", 1, 1, ["pin"]),
     ]);
     await screen.findByRole("heading", { name: "Focus" });
     const headings = screen
@@ -162,26 +160,22 @@ describe("ProgressView", () => {
     );
     expect(hanging).toHaveAttribute("target", "_blank");
     expect(hanging).toHaveAttribute("rel", "noopener noreferrer");
-    expect(screen.getByRole("link", { name: /Trapped Piece/ })).toHaveAttribute(
-      "href",
-      "https://lichess.org/training/trappedPiece",
-    );
     expect(screen.getByRole("link", { name: /Fork puzzles/ })).toHaveAttribute(
       "href",
       "https://lichess.org/training/fork",
     );
-    expect(screen.getAllByRole("link")).toHaveLength(3);
+    expect(screen.getAllByRole("link")).toHaveLength(2);
   });
 
   it("lists mastered concepts as encouragement", async () => {
     renderView([entry(800, 805)], undefined, [
-      concept("skewer", "mastered", 5, 0.1, ["skewer"]),
+      concept("skewer_blindness", "mastered", 5, 0.1, ["skewer"]),
     ]);
     expect(
       await screen.findByRole("heading", { name: "Mastered" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("skewer")).toBeInTheDocument();
-    expect(screen.queryByText(/seen/)).not.toBeInTheDocument();
+    expect(screen.getByText("skewer blindness")).toBeInTheDocument();
+    expect(screen.getByText("seen 5×")).toBeInTheDocument();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
     expect(
       screen.queryByText("Your focus areas will appear after a few games."),

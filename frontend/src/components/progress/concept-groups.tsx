@@ -77,11 +77,9 @@ export function ConceptGroups({ concepts }: { concepts: ConceptSummary[] }) {
                 <li key={concept.concept} className="grid min-w-0 gap-1">
                   <p className="flex flex-wrap items-baseline justify-between gap-x-2">
                     <span className="font-medium">{concept.label}</span>
-                    {state !== "mastered" && (
-                      <span className="text-sm text-muted-foreground">
-                        {describeCount(concept)}
-                      </span>
-                    )}
+                    <span className="text-sm text-muted-foreground">
+                      {describeCount(concept)}
+                    </span>
                   </p>
                   {practice && concept.practice_themes.length > 0 && (
                     <ul className="flex flex-wrap gap-2">
