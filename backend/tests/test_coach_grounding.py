@@ -529,6 +529,14 @@ def test_with_square_as_a_recommended_move_needs_a_verified_line(text: str) -> N
     assert validate_reply(reply(text, "e4:line"), start_context(E4_LINE)) == []
 
 
+def test_alternative_moves_after_with_each_need_a_verified_line() -> None:
+    both_squares = E4_POINTS.model_copy(update={"id": "center", "squares": ["e4", "d4"]})
+
+    assert GroundingErrorKind.UNVERIFIED_MOVE in kinds(
+        reply("Start with e4 or d4.", "center"), start_context(both_squares)
+    )
+
+
 SQUARE_ONLY = Fact(
     id="d5:square", type=FactType.ACTIVITY, side=Side.WHITE, summary="x", squares=["d5"]
 )
