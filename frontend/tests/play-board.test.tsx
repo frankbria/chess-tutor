@@ -31,6 +31,7 @@ function game(overrides: Partial<GameState> = {}): GameState {
   return {
     id: 1,
     mode: "regular",
+    opponent_elo: 1200,
     player_color: "white",
     status: "active",
     result: null,
