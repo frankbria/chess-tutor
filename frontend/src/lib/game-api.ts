@@ -3,6 +3,13 @@ import { API_BASE_URL } from "@/lib/api";
 export type PlayerColor = "white" | "black";
 export type GameResult = "1-0" | "0-1" | "1/2-1/2";
 
+export interface ClockState {
+  white_ms: number;
+  black_ms: number;
+  /** The side whose clock is ticking; null once the game is over. */
+  running: PlayerColor | null;
+}
+
 export interface GameState {
   id: number;
   mode: string;
@@ -13,6 +20,9 @@ export interface GameState {
   moves: string[];
   side_to_move: PlayerColor;
   legal_moves: string[];
+  time_control: string | null;
+  clock: ClockState | null;
+  ended_on_time: boolean;
 }
 
 export interface GameStreamHandlers {

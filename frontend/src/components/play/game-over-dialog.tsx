@@ -26,7 +26,7 @@ export function GameOverDialog({
         <DialogTitle>{HEADINGS[describeResult(result, playerColor)]}</DialogTitle>
         <DialogDescription>
           {result}
-          {reason ? ` by ${reason.replaceAll("_", " ")}` : ""}
+          {reason === "timeout" ? " on time" : reason ? ` by ${reason.replaceAll("_", " ")}` : ""}
         </DialogDescription>
         <DialogClose asChild>
           <Button>Close</Button>

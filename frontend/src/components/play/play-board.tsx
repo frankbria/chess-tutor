@@ -5,6 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ClockDisplay } from "@/components/play/clock-display";
 import { Chessboard } from "@/components/play/chessboard";
 import { GameOverDialog } from "@/components/play/game-over-dialog";
 import { MoveList } from "@/components/play/move-list";
@@ -140,6 +141,21 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
             "Your move"
           ) : null}
         </p>
+        {game.clock && (
+          <div className="flex flex-col gap-2">
+            {(["opponent", "player"] as const).map((who) => {
+              const side = who === "player" ? game.player_color : game.player_color === "white" ? "black" : "white";
+              return (
+                <ClockDisplay
+                  key={who}
+                  label={who === "player" ? "Your clock" : "Opponent clock"}
+                  remainingMs={side === "white" ? game.clock!.white_ms : game.clock!.black_ms}
+                  running={game.clock!.running === side}
+                />
+              );
+            })}
+          </div>
+        )}
         {connectionLost && <p role="status" className="text-sm text-muted-foreground">Connection lost, reconnecting…</p>}
         {message && (
           <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
@@ -169,7 +185,7 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
         <GameOverDialog
           open={!dialogDismissed}
           result={game.result}
-          reason={gameOverReason}
+          reason={gameOverReason ?? (game.ended_on_time ? "timeout" : undefined)}
           playerColor={game.player_color}
           onClose={() => setDialogDismissed(true)}
         />
