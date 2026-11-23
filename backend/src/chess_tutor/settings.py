@@ -14,6 +14,11 @@ class ClassificationThresholds(BaseModel):
     inaccuracy: float = 5.0
     mistake: float = 10.0
     blunder: float = 20.0
+    best_loss: float = 1.0  # a move losing less than this counts as the engine's best
+    great_alternative_gap: float = 15.0  # the runner-up must trail the best move by this much
+    brilliant_max_loss: float = 2.0
+    brilliant_min_sacrifice: int = 2  # net material (pawns) the move gives up, e.g. a minor piece
+    brilliant_min_win_probability: float = 40.0  # the sacrifice must not leave the mover losing
 
 
 class PhaseThresholds(BaseModel):
@@ -57,6 +62,9 @@ class Settings(BaseSettings):
     stockfish_path: str = "/usr/games/stockfish"
     stockfish_pool_size: int = Field(default=2, ge=1)
     maia_command: str = "maia3-uci"
+    maia_policy_command: str = ""  # empty: the maia3 uv tool interpreter + tools/maia3_policy
+    maia_policy_startup_timeout_seconds: float = Field(default=60, gt=0)
+    maia_policy_timeout_seconds: float = Field(default=10, gt=0)
     maia_model: Literal["3m", "5m", "23m", "79m"] = "5m"
     maia_device: str = "cpu"
     maia_enabled: bool = True  # tests that never play a game switch the engine off

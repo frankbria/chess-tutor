@@ -81,6 +81,7 @@ Monorepo layout: `backend/` (uv, FastAPI, pytest + pytest-bdd, ruff + black), `f
 ### 5.1 Engines
 - **Stockfish** — all analysis: evaluation, MultiPV candidate lines, verifying every concrete claim. Pool of long-lived UCI processes; analysis requests carry a depth/time budget.
 - **Maia-3** (`maia3-uci`; supports low ratings — lichess runs Maia-3 bots at 600/800/1000 — so it covers the 800 start; 23M model on the GPU when available, 5M on CPU as fallback) — (a) plays the opponent at a target Elo; (b) predicts *what a human at the player's rating would likely play* — used to judge whether a missed resource was "findable" at this level.
+- **Move probabilities** come from a small out-of-process policy helper (`tools/maia3_policy`, AGPL, run with the maia3 tool's interpreter), not from UCI: `maia3-uci` ranks MultiPV lines by policy but never prints the probabilities.
 - **OpponentEngine adapter** — interface `choose_move(board, elo) -> Move`; implementations: Maia-3 (default), Maia-2, Stockfish-limited (above Maia's useful range). Selected by config.
 - Opponent move delay: small humanised delay, longer when Maia's policy is spread across many moves (position is "hard").
 
