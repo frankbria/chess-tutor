@@ -54,6 +54,10 @@ def player_move_number(ply: int, color: PlayerColor) -> int:
     return (ply + 1) // 2 if color is PlayerColor.WHITE else ply // 2
 
 
+# The SDK's own timeout is minutes long; a game-ending request should not hang that long.
+FINAL_COMMENT_WAIT_SECONDS = 30.0
+
+
 class PassiveCoach:
     def __init__(
         self,
@@ -89,7 +93,9 @@ class PassiveCoach:
         await asyncio.gather(*self._tasks)
 
     async def wait_for_game(self, game_id: int) -> None:
-        await asyncio.gather(*(task for task, game in self._tasks.items() if game == game_id))
+        tasks = [task for task, game in self._tasks.items() if game == game_id]
+        if tasks:
+            await asyncio.wait(tasks, timeout=FINAL_COMMENT_WAIT_SECONDS)
 
     async def close(self) -> None:
         for task in self._tasks:

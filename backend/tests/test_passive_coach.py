@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from contextlib import contextmanager
@@ -12,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from chess_tutor.api.events import CoachCommentEvent, GameEvent
+from chess_tutor.coach import passive
 from chess_tutor.coach.llm import (
     ChatMessage,
     LanguageModel,
@@ -63,6 +65,19 @@ class DownLanguageModel:
     ) -> AsyncIterator[str]:
         raise self._error
         yield
+
+
+class HangingLanguageModel(DownLanguageModel):
+    async def structured[ParsedModel: BaseModel](
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        messages: Sequence[ChatMessage],
+        schema: type[ParsedModel],
+    ) -> StructuredReply[ParsedModel]:
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
 
 
 class Harness:
@@ -240,3 +255,16 @@ def test_the_final_comment_and_concepts_land_before_the_game_closes(settings: Se
         assert [event.type for event in harness.events()][-2:] == ["coach_comment", "game_over"]
         with Session(harness.app.state.engine) as session:
             assert session.scalars(select(ConceptState.concept)).all()
+
+
+def test_a_stalled_llm_cannot_hold_resign_open(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(passive, "FINAL_COMMENT_WAIT_SECONDS", 0.2)
+    with started(settings, HangingLanguageModel(LanguageModelError("unused"))) as harness:
+        game = f"/games/{harness.game_id}"
+        for uci in PLAYER_MOVES[:4]:
+            harness.api.post(f"{game}/moves", json={"uci": uci})
+
+        assert harness.api.post(f"{game}/resign").status_code == 200
+        assert [event.type for event in harness.events()][-1] == "game_over"
