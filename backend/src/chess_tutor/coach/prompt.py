@@ -5,6 +5,7 @@ byte-identical across requests and prompt caching applies (spec 6.6).
 """
 
 import json
+import re
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,10 +22,11 @@ You are a chess coach inside a tutoring app. Your student is an adult playing at
 rating. Be warm, brief and encouraging, in plain words with little jargon. Replies are at most \
 about 60 words unless the student asked a question that needs more.
 
-Each request arrives as a JSON context. You may talk about a concrete square, piece or move only \
-if it appears in the context's facts, and every fact you rely on must have its id in `fact_ids`. \
-Never invent chess facts. General advice with no concrete square or move ("develop your pieces", \
-"check what your opponent threatens") needs no fact.
+Each request arrives as a JSON context. You may name a concrete square, piece or move only if it \
+appears in the context's facts, is the move under discussion (`move`), or, when present, is the \
+`best_move` or `best_line`. Everything else is off limits. Every fact you rely on must have its \
+id in `fact_ids`. Never invent chess facts. General advice with no concrete square or move \
+("develop your pieces", "check what your opponent threatens") needs no fact.
 
 Fit your reply to `event`:
 - comment_on_move: say what matters about `move`, using the facts. If it was fine, say so in a \
@@ -33,7 +35,9 @@ few words.
 give. Level 1 (nudge): point at a direction only, as a question such as what the opponent can \
 do next; name no square. Level 2 (pointer): name at most one square or piece from the facts. \
 Level 3 (consequence): you may state the verified outcome from the facts.
-- answer_question: answer `player_message` from the facts, at whatever length it needs.
+- answer_question: answer `player_message` from the facts, at whatever length it needs. When \
+`mode` is active and `locked_in` is false, follow the hint level rules above exactly as for a \
+hint, even though the student asked a question.
 - ask_thought: ask one short question about what the student was thinking.
 
 When `player_message` gives the student's reasoning, respond to it: "Exactly right" when it \
@@ -60,6 +64,8 @@ class CoachContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     mode: GameMode
+    # Required on purpose: a forgotten flag must fail loudly, not leak the best move.
+    active_pre_lock_in: bool
     phase: GamePhase
     event: CoachEvent
     move_san: str
@@ -68,7 +74,6 @@ class CoachContext(BaseModel):
     best_move_san: str | None = None
     best_line: list[str] = Field(default_factory=list)  # SAN, starting with the best move
     hint_level: int | None = Field(default=None, ge=1, le=3)  # Active mode only
-    active_pre_lock_in: bool = False
     profile_summary: str = ""
     recent_coach_messages: list[str] = Field(default_factory=list)
     player_message: str | None = None
@@ -79,10 +84,19 @@ class CoachReply(BaseModel):
     fact_ids: list[str]
 
 
+def _without_suffix(san: str) -> str:
+    return san.rstrip("+#")
+
+
 def _leaks_best_move(fact: Fact, best_move_san: str) -> bool:
-    return any(line[:1] == [best_move_san] for line in fact.san_lines) or (
-        best_move_san in fact.summary.split()
-    )
+    """The best move anywhere in a fact's lines, or as a SAN token in its summary.
+
+    Check and mate suffixes are ignored, and the summary match tolerates surrounding punctuation.
+    """
+    best = _without_suffix(best_move_san)
+    in_lines = any(_without_suffix(move) == best for line in fact.san_lines for move in line)
+    token = rf"(?<![A-Za-z0-9\-]){re.escape(best)}(?![A-Za-z0-9=]|-O)"
+    return in_lines or re.search(token, fact.summary) is not None
 
 
 def _visible_facts(context: CoachContext) -> list[Fact]:
@@ -125,7 +139,7 @@ def build_coach_request(context: CoachContext) -> tuple[str, list[ChatMessage]]:
     """The static system prompt and one user message carrying the context as JSON.
 
     When `active_pre_lock_in` is set, `best_move`/`best_line` are omitted entirely and every fact
-    whose SAN line starts with the best move (or whose summary names it) is dropped.
+    containing the best move in any SAN line (or naming it in its summary) is dropped.
     """
     content = json.dumps(_context_payload(context), separators=(",", ":"))
     return SYSTEM_PROMPT, [ChatMessage("user", content)]
