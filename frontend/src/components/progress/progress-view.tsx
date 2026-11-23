@@ -37,7 +37,7 @@ export function ProgressView() {
 
   return (
     <>
-      <section aria-labelledby="rating-heading" className="grid gap-3">
+      <section aria-labelledby="rating-heading" className="grid min-w-0 gap-3">
         <h2 id="rating-heading" className="text-lg font-semibold">
           Rating
         </h2>

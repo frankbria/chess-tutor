@@ -17,7 +17,7 @@ export function RatingChart({ history, description }: { history: RatingHistoryEn
     performance: entry.performance_rating,
   }));
   return (
-    <ChartContainer config={config} role="img" aria-label={description} className="h-64 w-full">
+    <ChartContainer config={config} role="img" aria-label={description} className="aspect-auto h-64 w-full">
       <LineChart data={data} margin={{ left: 0, right: 8, top: 8 }}>
         <CartesianGrid vertical={false} />
         <XAxis dataKey="game" tickLine={false} allowDecimals={false} />
