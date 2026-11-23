@@ -144,8 +144,15 @@ async def test_failed_start_quits_engines_that_were_already_spawned(tmp_path: Pa
 
 
 def _stockfish_process_count() -> int:
-    return sum(
-        1
-        for entry in Path("/proc").iterdir()
-        if entry.name.isdigit() and (entry / "comm").read_text().strip() == "stockfish"
-    )
+    """Live stockfish processes spawned by this test process (other test runs don't count)."""
+    count = 0
+    for entry in Path("/proc").iterdir():
+        try:
+            if not entry.name.isdigit() or (entry / "comm").read_text().strip() != "stockfish":
+                continue
+            # /proc/<pid>/stat: "pid (comm) state ppid ..."; comm has no spaces for stockfish.
+            parent_pid = int((entry / "stat").read_text().split()[3])
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # the process exited while we were reading it
+        count += parent_pid == os.getpid()
+    return count

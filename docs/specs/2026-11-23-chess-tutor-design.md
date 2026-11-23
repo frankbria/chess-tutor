@@ -87,7 +87,7 @@ Monorepo layout: `backend/` (uv, FastAPI, pytest + pytest-bdd, ruff + black), `f
 ### 5.2 Position facts layer (deterministic, no LLM)
 Pure functions over `python-chess` boards + Stockfish output, producing a structured **fact packet**. This is the only source of chess truth the coach may use.
 
-- Material balance; pieces hanging (attacked ≥ defended, or attacked by lower value).
+- Material balance; pieces hanging (losing material by static exchange: both sides capture cheapest-first, may stop, x-rays included).
 - Tactical motifs: forks, pins, skewers, discovered attacks, back-rank weakness, mate threats, overloaded defenders, trapped pieces.
 - **Threats:** what the opponent threatens right now (null-move probe + Stockfish best reply).
 - King safety: castled?, pawn shield, open lines toward king.
