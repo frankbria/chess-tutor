@@ -24,6 +24,9 @@ function game(overrides: Partial<GameState> = {}): GameState {
     moves: [],
     side_to_move: "white",
     legal_moves: [],
+    time_control: null,
+    clock: null,
+    ended_on_time: false,
     ...overrides,
   };
 }
