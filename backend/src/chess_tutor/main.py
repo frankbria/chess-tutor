@@ -18,7 +18,7 @@ from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.routing import build_opponent
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.service import GameService
-from chess_tutor.models import Player, RatingHistory
+from chess_tutor.models import Game, Player, RatingHistory
 from chess_tutor.openings.book import opening_index
 from chess_tutor.settings import Settings
 
@@ -33,8 +33,6 @@ class PlayerResponse(BaseModel):
 
 
 class RatingHistoryResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     game_id: int
     rating_before: float
     rating_after: float
@@ -42,6 +40,8 @@ class RatingHistoryResponse(BaseModel):
     deviation_after: float
     weight: float
     created_at: datetime
+    accuracy: float | None
+    performance_rating: float | None
 
 
 def create_app(settings: Settings | None = None, opponent: OpponentEngine | None = None) -> FastAPI:
@@ -103,15 +103,28 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
             return session.scalars(select(Player).order_by(Player.id).limit(1)).one()
 
     @app.get("/player/rating-history", response_model=list[RatingHistoryResponse])
-    def get_rating_history(request: Request) -> list[RatingHistory]:
+    def get_rating_history(request: Request) -> list[RatingHistoryResponse]:
         with Session(request.app.state.engine) as session:
             player = session.scalars(select(Player).order_by(Player.id).limit(1)).one()
-            return list(
-                session.scalars(
-                    select(RatingHistory)
-                    .where(RatingHistory.player_id == player.id)
-                    .order_by(RatingHistory.id)
-                )
+            rows = session.execute(
+                select(RatingHistory, Game)
+                .join(Game, Game.id == RatingHistory.game_id)
+                .where(RatingHistory.player_id == player.id)
+                .order_by(RatingHistory.id)
             )
+            return [
+                RatingHistoryResponse(
+                    game_id=history.game_id,
+                    rating_before=history.rating_before,
+                    rating_after=history.rating_after,
+                    deviation_before=history.deviation_before,
+                    deviation_after=history.deviation_after,
+                    weight=history.weight,
+                    created_at=history.created_at,
+                    accuracy=game.accuracy,
+                    performance_rating=game.performance_rating,
+                )
+                for history, game in rows
+            ]
 
     return app
