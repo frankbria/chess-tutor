@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 let server: Server;
 let httpGameApi: typeof import("@/lib/game-api").httpGameApi;
+let httpLobbyApi: typeof import("@/lib/game-api").httpLobbyApi;
 let ApiError: typeof import("@/lib/game-api").ApiError;
 const requests: { method?: string; url?: string; body: string }[] = [];
 
@@ -27,7 +28,7 @@ beforeAll(async () => {
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", `http://127.0.0.1:${(server.address() as AddressInfo).port}`);
-  ({ httpGameApi, ApiError } = await import("@/lib/game-api"));
+  ({ httpGameApi, httpLobbyApi, ApiError } = await import("@/lib/game-api"));
 });
 
 afterAll(() => {
@@ -51,5 +52,18 @@ describe("httpGameApi", () => {
 
   it("falls back to the status text when the body is not JSON", async () => {
     await expect(httpGameApi.getGame(8)).rejects.toMatchObject({ status: 503 });
+  });
+});
+
+describe("httpLobbyApi", () => {
+  it("creates a game with a JSON body and lists active games", async () => {
+    await httpLobbyApi.createGame({ mode: "active", color: "random", opponent_elo: 1400 });
+    const post = requests.at(-1);
+    expect([post?.method, post?.url]).toEqual(["POST", "/games"]);
+    expect(JSON.parse(post?.body ?? "")).toEqual({ mode: "active", color: "random", opponent_elo: 1400 });
+    await httpLobbyApi.listActiveGames();
+    expect(requests.at(-1)?.url).toBe("/games?status=active");
+    await httpLobbyApi.getPlayer();
+    expect(requests.at(-1)?.url).toBe("/player");
   });
 });

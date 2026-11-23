@@ -1,12 +1,15 @@
 import { API_BASE_URL } from "@/lib/api";
 
 export type PlayerColor = "white" | "black";
+export type GameMode = "regular" | "passive" | "active";
+export type ColorChoice = PlayerColor | "random";
 export type GameResult = "1-0" | "0-1" | "1/2-1/2";
 
 export interface GameState {
   id: number;
-  mode: string;
+  mode: GameMode;
   player_color: PlayerColor;
+  opponent_elo: number;
   status: "active" | "finished";
   result: GameResult | null;
   fen: string;
@@ -32,6 +35,23 @@ export interface GameApi {
   subscribe(id: number, handlers: GameStreamHandlers): () => void;
 }
 
+export interface NewGame {
+  mode: GameMode;
+  color: ColorChoice;
+  opponent_elo: number;
+}
+
+export interface Player {
+  rating: number;
+}
+
+/** What the home screen needs from the backend: starting and resuming games. */
+export interface LobbyApi {
+  createGame(newGame: NewGame): Promise<GameState>;
+  listActiveGames(): Promise<GameState[]>;
+  getPlayer(): Promise<Player>;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -41,7 +61,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path: string, method: "GET" | "POST", body?: object): Promise<GameState> {
+async function request<T = GameState>(path: string, method: "GET" | "POST", body?: object): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     cache: "no-store",
@@ -56,7 +76,7 @@ async function request(path: string, method: "GET" | "POST", body?: object): Pro
         : response.statusText;
     throw new ApiError(response.status, detail);
   }
-  return (await response.json()) as GameState;
+  return (await response.json()) as T;
 }
 
 /** A malformed event is dropped so one bad payload cannot break the stream. */
@@ -89,4 +109,10 @@ export const httpGameApi: GameApi = {
     });
     return () => source.close();
   },
+};
+
+export const httpLobbyApi: LobbyApi = {
+  createGame: (newGame) => request("/games", "POST", newGame),
+  listActiveGames: () => request<GameState[]>("/games?status=active", "GET"),
+  getPlayer: () => request<Player>("/player", "GET"),
 };
