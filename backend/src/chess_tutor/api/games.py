@@ -105,7 +105,9 @@ class GameResponse(BaseModel):
     status: GameStatus
     result: GameResult | None
     accuracy: float | None = Field(description="Player accuracy, null until moves are classified")
-    performance_rating: float | None
+    performance_rating: float | None = Field(
+        description="Accuracy-based performance estimate, shown alongside (never mixed into) Glicko"
+    )
     fen: str
     moves: list[str] = Field(description="Moves in SAN, in play order")
     side_to_move: PlayerColor

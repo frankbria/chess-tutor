@@ -141,3 +141,23 @@ def test_api_defaults_opponent_elo_and_returns_performance(settings: Settings) -
         pytest.approx(PERFECT),
         expected,
     )
+
+
+async def test_accuracy_for_a_black_player_uses_the_even_plies(engine: Engine) -> None:
+    service = GameService(engine, ScriptedOpponent("e4", "Nf3", "Nc3"))
+    game = await service.create_game(PLAYER_ID, 1200, ColorChoice.BLACK)
+    await service.play_move(game.id, "e7e5")
+    await service.play_move(game.id, "b8c6")
+    service.resign(game.id)
+    # plies 2 and 4 are the black player's; the opponent's plies 1 and 3 must be ignored.
+    set_evals(
+        engine,
+        game.id,
+        {1: (50.0, 10.0), 2: (50.0, 50.0), 3: (55.0, 5.0), 4: (60.0, 30.0)},
+    )
+
+    with Session(engine) as session:
+        stored = session.get_one(Game, game.id)
+        record_performance(session, stored)
+
+    assert stored.accuracy == pytest.approx(game_accuracy([0.0, 30.0]))
