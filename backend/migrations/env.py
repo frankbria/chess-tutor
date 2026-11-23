@@ -7,7 +7,7 @@ from chess_tutor.settings import Settings
 
 config = context.config
 # Programmatic runs (app startup, tests) pass their own URL; the CLI falls back to Settings.
-url = config.get_main_option("sqlalchemy.url") or database_url(Settings(_env_file=None))
+url = config.get_main_option("sqlalchemy.url") or database_url(Settings())
 
 if context.is_offline_mode():
     context.configure(

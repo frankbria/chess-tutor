@@ -1,10 +1,12 @@
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from chess_tutor.database import run_migrations
+from chess_tutor.database import create_database_engine, run_migrations
 from chess_tutor.main import create_app
-from chess_tutor.models import Player
+from chess_tutor.models import Player, PlayerSetting
 from chess_tutor.settings import Settings
 
 
@@ -49,3 +51,12 @@ def test_get_player_returns_default_player(client: TestClient) -> None:
         "rating": 800,
         "rating_deviation": 350,
     }
+
+
+def test_foreign_keys_are_enforced(settings: Settings) -> None:
+    run_migrations(settings)
+
+    with Session(create_database_engine(settings)) as session:
+        session.add(PlayerSetting(player_id=999, key="theme", value="dark"))
+        with pytest.raises(IntegrityError):
+            session.commit()

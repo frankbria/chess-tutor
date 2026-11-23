@@ -1,9 +1,11 @@
 from pathlib import Path
+from sqlite3 import Connection as SQLiteConnection
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import Engine, create_engine, select
+from sqlalchemy import Engine, create_engine, event, select
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import ConnectionPoolEntry
 
 from chess_tutor.models import DEFAULT_DISPLAY_NAME, Player
 from chess_tutor.settings import Settings
@@ -16,7 +18,14 @@ def database_url(settings: Settings) -> str:
 
 
 def create_database_engine(settings: Settings) -> Engine:
-    return create_engine(database_url(settings))
+    engine = create_engine(database_url(settings))
+    event.listen(engine, "connect", enable_foreign_keys)
+    return engine
+
+
+def enable_foreign_keys(connection: SQLiteConnection, _: ConnectionPoolEntry) -> None:
+    # SQLite ignores FOREIGN KEY constraints unless each connection opts in.
+    connection.execute("PRAGMA foreign_keys = ON")
 
 
 def run_migrations(settings: Settings) -> None:
