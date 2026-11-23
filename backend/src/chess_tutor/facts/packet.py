@@ -2,6 +2,7 @@ import chess
 
 from chess_tutor.facts.detectors import hanging_pieces, material_balance, side_of
 from chess_tutor.facts.models import FactPacket
+from chess_tutor.facts.positional import positional_facts
 from chess_tutor.facts.tactics import (
     discovered_attacks,
     fork_opportunities,
@@ -23,5 +24,6 @@ def build_fact_packet(board: chess.Board) -> FactPacket:
             *pins(board),
             *skewers(board),
             *discovered_attacks(board),
+            *positional_facts(board),
         ],
     )

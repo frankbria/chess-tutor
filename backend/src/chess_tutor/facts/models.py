@@ -15,6 +15,10 @@ class FactType(StrEnum):
     PIN = "pin"
     SKEWER = "skewer"
     DISCOVERED_ATTACK = "discovered_attack"
+    KING_SAFETY = "king_safety"
+    PAWN_STRUCTURE = "pawn_structure"
+    DEVELOPMENT = "development"
+    ACTIVITY = "activity"
 
 
 class PieceRef(BaseModel):
