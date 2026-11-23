@@ -62,3 +62,9 @@ def test_defaults_match_the_spec() -> None:
 def test_blank_or_placeholder_api_key_counts_as_missing(blank_key: str) -> None:
     with pytest.raises(ValidationError, match="CHESS_TUTOR_LLM_API_KEY"):
         Settings(_env_file=None, llm_api_key=SecretStr(blank_key))
+
+
+def test_stockfish_pool_size_defaults_to_two_and_rejects_zero() -> None:
+    assert Settings(_env_file=None, llm_provider="none").stockfish_pool_size == 2
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, llm_provider="none", stockfish_pool_size=0)
