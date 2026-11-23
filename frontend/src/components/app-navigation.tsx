@@ -18,7 +18,7 @@ export function AppNavigation({ currentPath }: { currentPath: string }) {
     <nav
       aria-label="Main"
       data-slot="app-navigation"
-      className="fixed inset-x-0 bottom-0 z-10 border-t bg-card/95 backdrop-blur md:static md:w-56 md:border-t-0 md:border-r"
+      className="fixed inset-x-0 bottom-0 z-10 border-t bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:static md:pb-0 md:w-56 md:border-t-0 md:border-r"
     >
       <ul className="flex justify-around md:flex-col md:gap-1 md:p-3">
         {NAVIGATION_ITEMS.map(({ href, label, icon }) => {

@@ -13,7 +13,8 @@ export default function HomePage() {
       <p className="max-w-sm text-muted-foreground">
         Play at your level with a coach that notices what you miss.
       </p>
-      <Button size="lg" className="w-full max-w-xs">
+      {/* Enabled once game creation exists (P1.7, #19). */}
+      <Button size="lg" className="w-full max-w-xs" disabled>
         Play
       </Button>
     </section>

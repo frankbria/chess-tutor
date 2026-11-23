@@ -15,7 +15,8 @@ export const metadata: Metadata = {
   description: "Play at your level with an AI coach that notices what you miss.",
 };
 
-export const viewport: Viewport = { themeColor: "#5b3fd6" };
+// viewport-fit=cover makes env(safe-area-inset-*) non-zero so the bottom nav clears the home indicator.
+export const viewport: Viewport = { themeColor: "#5b3fd6", viewportFit: "cover" };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
@@ -24,7 +25,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Suspense fallback={<AppNavigation currentPath="" />}>
           <CurrentAppNavigation />
         </Suspense>
-        <main className="flex flex-1 flex-col px-4 pt-6 pb-24 md:px-8 md:pb-6">{children}</main>
+        <main className="flex flex-1 flex-col px-4 pt-6 pb-[calc(6rem+env(safe-area-inset-bottom))] md:px-8 md:pb-6">{children}</main>
       </body>
     </html>
   );

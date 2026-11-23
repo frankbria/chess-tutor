@@ -19,7 +19,7 @@ describe("route placeholders", () => {
   it("home offers a Play action", () => {
     render(<HomePage />);
     expect(screen.getByRole("heading", { level: 1, name: "Chess Tutor" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Play" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Play" })).toBeDisabled();
   });
 
   it("play shows the game id", async () => {
