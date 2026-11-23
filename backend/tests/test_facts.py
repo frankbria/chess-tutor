@@ -32,6 +32,8 @@ def hanging_ids(fen: str) -> set[str]:
         # Rxd8+ wins: the king can't recapture because the queen behind the rook covers d8.
         # White's d2 rook (attacked once, defended by the queen) is not hanging.
         ("3rk3/8/8/8/8/8/3R4/3QK3 w - - 0 1", {"hanging:d8"}),
+        # Kxd2 is illegal: the pinned bishop can't capture but still guards d2 against the king
+        ("2k5/8/8/8/8/2b5/3n4/2R1K3 w - - 0 1", {"hanging:c3"}),
     ],
 )
 def test_hanging_positive(fen: str, expected: set[str]) -> None:

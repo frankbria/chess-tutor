@@ -86,6 +86,9 @@ def _exchange_gain(board: chess.Board, square: chess.Square, capturing: chess.Co
     cheapest piece and may stop at any point. Playing each capture on a board copy lets pieces
     behind the capturer (doubled rooks, queen behind bishop) join in."""
     capturers = _capturers(board, capturing, square)
+    if board.is_attacked_by(not capturing, square):
+        # The king can't capture into a guarded square; pinned pieces still guard it.
+        capturers = [c for c in capturers if board.piece_type_at(c) != chess.KING]
     if not capturers:
         return 0
     cheapest = min(capturers, key=lambda capturer: _exchange_value(board, capturer))
