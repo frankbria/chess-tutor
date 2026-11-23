@@ -25,6 +25,8 @@ def hanging_ids(fen: str) -> set[str]:
         ("3rk3/8/8/6b1/8/8/3N4/4K3 w - - 0 1", {"hanging:d2"}),
         # the only defender is pinned along a diagonal that does not include the target
         ("5k2/8/3b4/4n3/1B6/8/8/4R1K1 w - - 0 1", {"hanging:b4", "hanging:d6", "hanging:e5"}),
+        # attacked twice by knights, defended once by a knight: the exchange wins a piece
+        ("4k3/8/2n5/4n3/2N5/5N2/8/4K3 w - - 0 1", {"hanging:c4", "hanging:e5", "hanging:f3"}),
     ],
 )
 def test_hanging_positive(fen: str, expected: set[str]) -> None:
@@ -41,6 +43,8 @@ def test_hanging_positive(fen: str, expected: set[str]) -> None:
         "3rk3/8/8/8/8/8/3R4/3QK3 w - - 0 1",
         # a defender that is not pinned still defends
         "5k2/8/3b4/4n3/8/8/8/4R1K1 w - - 0 1",
+        # attacked twice by rooks, defended by a pawn: Rxe5 dxe5 loses the exchange
+        "4k3/8/3p4/R3n3/8/8/8/4R2K w - - 0 1",
     ],
 )
 def test_hanging_negative(fen: str) -> None:

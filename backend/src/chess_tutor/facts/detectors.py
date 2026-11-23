@@ -67,17 +67,38 @@ def _value(board: chess.Board, square: chess.Square) -> int:
     return PIECE_VALUES.get(piece_type, KING_AS_ATTACKER_VALUE)
 
 
+KING_EXCHANGE_VALUE = 100
+
+
 def _is_hanging(board: chess.Board, square: chess.Square, color: chess.Color) -> bool:
     attackers = _capturers(board, not color, square)
     if not attackers:
         return False
     defenders = _capturers(board, color, square)
-    # A king cannot recapture while a second attacker still covers the square.
-    if len(attackers) > 1:
-        defenders = [d for d in defenders if board.piece_type_at(d) != chess.KING]
-    if not defenders:
-        return True
-    return min(_value(board, a) for a in attackers) < _value(board, square)
+    return (
+        _exchange_gain(
+            _value(board, square),
+            sorted(_exchange_value(board, a) for a in attackers),
+            sorted(_exchange_value(board, d) for d in defenders),
+        )
+        > 0
+    )
+
+
+def _exchange_value(board: chess.Board, square: chess.Square) -> int:
+    # A king may only capture last: giving it a huge value makes recapturing it never pay.
+    return (
+        KING_EXCHANGE_VALUE if board.piece_type_at(square) == chess.KING else _value(board, square)
+    )
+
+
+def _exchange_gain(target_value: int, attackers: list[int], defenders: list[int]) -> int:
+    """Static exchange: what the side to capture wins on this square, each side capturing with
+    its cheapest piece and free to stop. Values must be sorted ascending."""
+    # shortcut: ignores x-ray attackers behind the first capturer, add them if batteries matter
+    if not attackers:
+        return 0
+    return max(0, target_value - _exchange_gain(attackers[0], defenders, attackers[1:]))
 
 
 def hanging_pieces(board: chess.Board) -> list[Fact]:
