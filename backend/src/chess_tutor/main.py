@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -16,6 +17,7 @@ from chess_tutor.engines.opponent import Maia3Opponent, OpponentEngine
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.service import GameService
 from chess_tutor.models import Player
+from chess_tutor.openings.book import opening_index
 from chess_tutor.settings import Settings
 
 
@@ -34,6 +36,7 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         run_migrations(settings)
+        await asyncio.to_thread(opening_index)  # parse the book before the first move needs it
         engine = create_database_engine(settings)
         seed_default_player(engine)
         app.state.engine = engine

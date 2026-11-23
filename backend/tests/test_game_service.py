@@ -415,7 +415,7 @@ async def test_out_of_range_opponent_elo_is_rejected(engine: Engine, elo: int) -
 
 
 async def test_concurrent_reply_requests_produce_one_opponent_move(engine: Engine) -> None:
-    service = service_with(engine, "e5", "Nc6")
+    service = service_with(engine, "e5", "Nc6", "a6")
     game = await service.create_game(PLAYER_ID, 800, ColorChoice.WHITE)
 
     await asyncio.gather(
@@ -424,3 +424,26 @@ async def test_concurrent_reply_requests_produce_one_opponent_move(engine: Engin
     )
 
     assert move_count(engine, game.id) == 2
+
+
+async def test_game_stores_the_opening_and_keeps_it_after_leaving_book(engine: Engine) -> None:
+    service = service_with(engine, "e5", "Nc6", "a6")
+    game = await service.create_game(PLAYER_ID, 1100, ColorChoice.WHITE)
+
+    for san in ("e4", "Nf3"):
+        game = await play_san(service, game.id, san)
+    assert (game.opening_eco, game.opening_name) == (
+        "C44",
+        "King's Knight Opening: Normal Variation",
+    )
+
+    game = await play_san(service, game.id, "Bb5")  # the opponent answers ...a6
+    assert (game.opening_eco, game.opening_name) == ("C70", "Ruy Lopez: Morphy Defense")
+
+
+async def test_opening_name_is_kept_after_leaving_book(engine: Engine) -> None:
+    service = service_with(engine, "e5", "Nc6", "a6", "Nf6")
+    game = await service.create_game(PLAYER_ID, 1100, ColorChoice.WHITE)
+    for san in ("e4", "Nf3", "Bb5", "h3"):
+        game = await play_san(service, game.id, san)
+    assert game.opening_name is not None and game.opening_name.startswith("Ruy Lopez")

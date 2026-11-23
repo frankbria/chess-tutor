@@ -19,6 +19,7 @@ from chess_tutor.models import (
     Player,
     PlayerColor,
 )
+from chess_tutor.openings import lookup_opening
 
 OPPONENT_ENGINE_NAME = "maia3"
 
@@ -226,6 +227,9 @@ class GameService:
             )
         )
         board.push(move)
+        opening = lookup_opening(board)
+        if opening is not None:
+            game.opening_eco, game.opening_name = opening
         result = board_result(board)
         if result is not None:
             self._finish(session, game, result)
