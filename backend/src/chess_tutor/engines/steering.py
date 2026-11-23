@@ -93,8 +93,11 @@ class SteeringOpponent:
         max_eval_loss_centipawns: int = 30,
         top_moves: int = 4,
         probability_floor: float = 0.05,
+        max_steered_elo: int | None = None,
         random_source: random.Random | None = None,
     ) -> None:
+        # Above this Elo the router plays Stockfish, so Maia-based steering must not apply.
+        self._max_steered_elo = max_steered_elo
         self._wrapped = wrapped
         self._predictor = predictor
         self._analyser = analyser
@@ -119,9 +122,9 @@ class SteeringOpponent:
         await self._wrapped.close()
 
     async def choose_move(self, board: chess.Board, elo: int) -> chess.Move:
-        if (
-            self._random.random() >= self._rate
-        ):  # most moves stay Maia's own, tail blunders included
+        above_ceiling = self._max_steered_elo is not None and elo > self._max_steered_elo
+        # Most moves stay Maia's own (tail blunders included); Stockfish's are never steered.
+        if above_ceiling or self._random.random() >= self._rate:
             return await self._wrapped.choose_move(board, elo)
         motifs = [
             CONCEPT_MOTIFS[concept]

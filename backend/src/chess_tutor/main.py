@@ -94,6 +94,7 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
                 lambda: focus_concepts_of_first_player(engine),
                 settings.opponent_steering_rate,
                 settings.opponent_steering_max_eval_loss_centipawns,
+                max_steered_elo=settings.opponent_stockfish_above_elo,
             )
         app.state.opponent = game_opponent
         try:

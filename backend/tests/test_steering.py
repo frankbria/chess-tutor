@@ -336,3 +336,25 @@ def test_the_lifespan_wraps_the_opponent_only_when_steering_is_enabled(
 
     with TestClient(app):
         assert isinstance(app.state.opponent, SteeringOpponent) is enabled
+
+
+async def test_above_the_elo_ceiling_the_routed_engine_plays_unsteered() -> None:
+    # Above the Stockfish routing threshold the opponent is Stockfish, not Maia: steering
+    # (which is built on Maia's move predictions) must step aside.
+    predictor = ScriptedPredictor((QUIET_MOVE, 0.5), (HANGING_MOVE, 0.3), (OTHER_QUIET_MOVE, 0.2))
+    wrapped = ScriptedOpponent(*["h6"] * 10)
+    opponent = SteeringOpponent(
+        wrapped,
+        predictor,
+        ScriptedAnalyser({QUIET_MOVE: 0, HANGING_MOVE: -10, OTHER_QUIET_MOVE: 0}),
+        hanging_focus,
+        1.0,
+        30,
+        max_steered_elo=2000,
+        random_source=random.Random(0),
+    )
+
+    await opponent.choose_move(chess.Board(HANG_FEN), 2400)
+
+    assert wrapped.elos == [2400]
+    assert predictor.requests == []
