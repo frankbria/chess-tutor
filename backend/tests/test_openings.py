@@ -117,7 +117,7 @@ def test_in_book_position_is_opening_even_when_developed() -> None:
             "f3",
             "O-O",
             "g3",
-        ]  # Hippopotamus Attack
+        ]
     )
     assert lookup_opening(board) is not None
     assert detect_phase(board, PhaseThresholds(opening_max_move=0)) is GamePhase.OPENING
