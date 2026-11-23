@@ -27,9 +27,16 @@ def upgrade() -> None:
         sa.Column("deviation_before", sa.Float(), nullable=False),
         sa.Column("deviation_after", sa.Float(), nullable=False),
         sa.Column("weight", sa.Float(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.current_timestamp(),
+        ),
     )
+    op.create_index("ix_rating_history_player_id", "rating_history", ["player_id"])
 
 
 def downgrade() -> None:
+    op.drop_index("ix_rating_history_player_id", table_name="rating_history")
     op.drop_table("rating_history")

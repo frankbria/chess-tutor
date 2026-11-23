@@ -1,3 +1,4 @@
+import math
 from collections.abc import Iterator
 
 import pytest
@@ -7,9 +8,18 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.database import create_database_engine, run_migrations, seed_default_player
-from chess_tutor.games.service import ColorChoice, GameService
+from chess_tutor.games.service import ColorChoice, GameNotActiveError, GameService
 from chess_tutor.main import create_app
-from chess_tutor.models import Game, GameMode, GameResult, Player, RatingHistory
+from chess_tutor.models import (
+    DEFAULT_RATING,
+    DEFAULT_RATING_DEVIATION,
+    DEFAULT_VOLATILITY,
+    Game,
+    GameMode,
+    GameResult,
+    Player,
+    RatingHistory,
+)
 from chess_tutor.rating.glicko2 import GameOutcome, Rating, update, weighted_update
 from chess_tutor.rating.history import record_rating
 from chess_tutor.settings import Settings, Thresholds
@@ -41,6 +51,15 @@ def test_win_raises_loss_lowers_and_draw_against_a_stronger_opponent_raises() ->
     assert update(player, [GameOutcome(1000, 50, 1)]).rating > 1000
     assert update(player, [GameOutcome(1000, 50, 0)]).rating < 1000
     assert update(player, [GameOutcome(1400, 50, 0.5)]).rating > 1000
+
+
+def test_a_surprising_win_by_a_certain_player_keeps_a_sane_volatility() -> None:
+    # delta^2 exceeds phi^2 + variance here, which takes the logarithmic bracketing branch.
+    result = update(Rating(1500, 30, 0.06), [GameOutcome(2500, 50, 1)])
+
+    assert math.isfinite(result.volatility)
+    assert result.volatility > 0.06
+    assert result.rating > 1500
 
 
 def test_deviation_shrinks_after_a_game() -> None:
@@ -95,17 +114,36 @@ async def test_resigning_lowers_rating_and_writes_one_history_row(engine: Engine
         assert session.get_one(Player, PLAYER_ID).rating == row.rating_after
 
 
-async def test_tutor_game_moves_the_rating_less_than_a_regular_one(engine: Engine) -> None:
-    await resigned_game(engine, GameMode.REGULAR)
-    regular_loss = 800 - player_rating(engine)
+def reset_player(engine: Engine) -> None:
     with Session(engine) as session:
         player = session.get_one(Player, PLAYER_ID)
-        player.rating = 800.0
+        player.rating = DEFAULT_RATING
+        player.rating_deviation = DEFAULT_RATING_DEVIATION
+        player.volatility = DEFAULT_VOLATILITY
         session.commit()
 
-    await resigned_game(engine, GameMode.ACTIVE)
+
+def test_seeded_player_starts_with_a_high_deviation(engine: Engine) -> None:
+    with Session(engine) as session:
+        player = session.get_one(Player, PLAYER_ID)
+
+    assert (player.rating, player.rating_deviation) == (800.0, 350.0)
+
+
+@pytest.mark.parametrize(("mode", "weight"), [(GameMode.PASSIVE, 0.75), (GameMode.ACTIVE, 0.5)])
+async def test_tutor_game_moves_the_rating_less_than_a_regular_one(
+    engine: Engine, mode: GameMode, weight: float
+) -> None:
+    await resigned_game(engine, GameMode.REGULAR)
+    regular_loss = 800 - player_rating(engine)
+    reset_player(engine)
+
+    await resigned_game(engine, mode)
 
     assert 0 < 800 - player_rating(engine) < regular_loss
+    with Session(engine) as session:
+        weights = list(session.scalars(select(RatingHistory.weight).order_by(RatingHistory.id)))
+    assert weights == [1.0, weight]
 
 
 async def test_checkmate_win_raises_rating_and_finishing_twice_does_not_reapply(
@@ -120,7 +158,7 @@ async def test_checkmate_win_raises_rating_and_finishing_twice_does_not_reapply(
     assert finished.status.value == "finished"
     assert rating_after_win > 800
     assert history_count(engine) == 1
-    with pytest.raises(Exception, match="already finished"):
+    with pytest.raises(GameNotActiveError, match="already finished"):
         service.resign(game.id)
     assert (player_rating(engine), history_count(engine)) == (rating_after_win, 1)
 
