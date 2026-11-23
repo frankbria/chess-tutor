@@ -145,8 +145,9 @@ async def test_refreshing_a_game_twice_does_not_double_apply(engine: Engine) -> 
 
 
 def test_concepts_endpoint_orders_by_state_and_describes_each(settings: Settings) -> None:
-    with TestClient(create_app(settings)) as client:
-        engine = client.app.state.engine  # type: ignore[attr-defined]
+    app = create_app(settings)
+    with TestClient(app) as client:
+        engine: Engine = app.state.engine
         with Session(engine) as session:
             for concept, pattern in (
                 ("pin_blindness", "x"),
@@ -158,6 +159,9 @@ def test_concepts_endpoint_orders_by_state_and_describes_each(settings: Settings
                 row = run_games(new_state(PLAYER_ID, concept), pattern)
                 row.last_seen_game_id = None  # no such game rows in this test
                 session.add(row)
+            retired = run_games(new_state(PLAYER_ID, "early_queen"), "xxxx")
+            retired.concept, retired.last_seen_game_id = "retired_concept", None
+            session.add(retired)
             session.commit()
 
         body = client.get("/player/concepts").json()

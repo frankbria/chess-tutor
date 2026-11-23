@@ -156,6 +156,8 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
         rows = sorted(
             rows, key=lambda row: (CONCEPT_STATE_ORDER.index(row.state), -row.recency_score)
         )
+        known = {concept.value for concept in CONCEPTS}
+        # A concept retired from the taxonomy keeps its stored rows; skip them, don't fail the list.
         return [
             ConceptStateResponse(
                 concept=row.concept,
@@ -166,6 +168,7 @@ def create_app(settings: Settings | None = None, opponent: OpponentEngine | None
                 practice_themes=list(CONCEPTS[Concept(row.concept)].practice_themes),
             )
             for row in rows
+            if row.concept in known
         ]
 
     return app
