@@ -1,0 +1,81 @@
+{
+  "mode": "active",
+  "event": "hint",
+  "phase": "middlegame",
+  "focus": [
+    "tactics",
+    "plans",
+    "weak squares",
+    "piece activity",
+    "trades"
+  ],
+  "move": "Kf2",
+  "fen": "r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1",
+  "side_to_move": "white",
+  "facts": [
+    {
+      "id": "material:balance",
+      "type": "material_balance",
+      "side": "black",
+      "summary": "Black is up 2 points of material",
+      "severity": 2
+    },
+    {
+      "id": "activity:white:passive_king",
+      "type": "activity",
+      "side": "white",
+      "summary": "White king on e1 is 3 steps from the centre",
+      "severity": 1,
+      "squares": [
+        "e1"
+      ],
+      "pieces": [
+        {
+          "color": "white",
+          "piece_type": "king",
+          "square": "e1"
+        }
+      ]
+    },
+    {
+      "id": "activity:black:rook_file:a8",
+      "type": "activity",
+      "side": "black",
+      "summary": "Black rook on a8 is on the open a-file",
+      "severity": 2,
+      "squares": [
+        "a8"
+      ],
+      "pieces": [
+        {
+          "color": "black",
+          "piece_type": "rook",
+          "square": "a8"
+        }
+      ]
+    },
+    {
+      "id": "activity:black:passive_king",
+      "type": "activity",
+      "side": "black",
+      "summary": "Black king on e8 is 3 steps from the centre",
+      "severity": 1,
+      "squares": [
+        "e8"
+      ],
+      "pieces": [
+        {
+          "color": "black",
+          "piece_type": "king",
+          "square": "e8"
+        }
+      ]
+    }
+  ],
+  "locked_in": false,
+  "hint_level": 2,
+  "profile": "Often misses knight forks.",
+  "recent_coach_messages": [
+    "Watch the knight."
+  ]
+}
