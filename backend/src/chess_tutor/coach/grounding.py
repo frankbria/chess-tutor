@@ -16,8 +16,8 @@ Rules `validate_reply` enforces on `reply.text`:
   line). A square no board shows that piece on is rejected;
 - a pawn push with a check, mate or promotion mark ("e4+", "e8=Q") is a move too;
 - a bare square right after move wording ("play e4", "then e5", "try d4", "with e4, White...") is
-  read as a move and needs a verified line, not just a cited square; "with <square>" counts only
-  when it ends the clause, so "with a8 and e8 both attacked" stays descriptive;
+  read as a move and needs a verified line, not just a cited square; "with <square>" counts unless
+  another square or a state word follows, so "with a8 and e8 both attacked" stays descriptive;
 - Active mode before lock-in: the best move's SAN may not appear at all;
 - the reply may not talk about a correction ("Good catch", "Let me redo", "Sorry", "rewrite",
   "my previous reply"): such text is for the operator, never for the student;
@@ -65,10 +65,15 @@ _MOVE_WORDING = re.compile(
     rf"({_SQUARE})(?!\w)",
     re.IGNORECASE,
 )
-# "with e4, White..." / "Open with e4." recommend a move; "with a8 and e8 both attacked" describes.
-# shortcut: a square closing a descriptive clause ("with e8.") reads as a move, tighten on evidence.
+# "with e4, White..." / "Open with e4 and..." recommend a move; a square list or a state word after
+# the square ("with a8 and e8 both attacked", "with e8 hanging") describes the position instead.
+# shortcut: the state words are a fixed list, extend it when a real reply trips over a new one.
 _WITH_MOVE = re.compile(
-    rf"\bwith\s+({_SQUARE})(?!\w)(?=\s*(?:,(?!\s*{_SQUARE})|[.;!?]|$))", re.IGNORECASE
+    rf"\bwith\s+({_SQUARE})(?!\w)"
+    rf"(?!\s*(?:,|\s(?:and|or)\s)\s*{_SQUARE}(?!\w))"
+    r"(?!\s+(?:attacked|defended|hanging|weak|controlled|pinned|under|both|all|covered|guarded"
+    r"|undefended|unprotected|loose|safe|empty|occupied)\b)",
+    re.IGNORECASE,
 )
 _CORRECTION_OPENING = re.compile(
     r"^\W*(?:good catch|let me (?:redo|rewrite|fix|try again)|sorry|my (?:mistake|apologies)"

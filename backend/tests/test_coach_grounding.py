@@ -513,7 +513,14 @@ def test_with_square_in_a_description_is_not_a_move(text: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "text", ["With e4, White takes space.", "Open with e4.", "Start with e4; it is solid."]
+    "text",
+    [
+        "With e4, White takes space.",
+        "Open with e4.",
+        "Start with e4; it is solid.",
+        "Open with e4 and control the center.",
+        "Start with e4 to take space.",
+    ],
 )
 def test_with_square_as_a_recommended_move_needs_a_verified_line(text: str) -> None:
     assert GroundingErrorKind.UNVERIFIED_MOVE in kinds(
