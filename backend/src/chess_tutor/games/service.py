@@ -1,3 +1,4 @@
+import asyncio
 import random
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -43,6 +44,18 @@ class IllegalMoveError(GameError):
     pass
 
 
+class InvalidGameSettingsError(GameError):
+    pass
+
+
+class OpponentUnavailableError(GameError):
+    """The opponent engine failed to reply. The player's move is kept; retry the reply later."""
+
+
+MINIMUM_OPPONENT_ELO = 400
+MAXIMUM_OPPONENT_ELO = 3000
+
+
 class NotPlayersTurnError(GameError):
     pass
 
@@ -61,6 +74,8 @@ class GameService:
     def __init__(self, engine: Engine, opponent: OpponentEngine) -> None:
         self._engine = engine
         self._opponent = opponent
+        # Serialises moves so a double-submitted move can't race past the turn check.
+        self._move_lock = asyncio.Lock()
 
     async def create_game(
         self,
@@ -69,6 +84,10 @@ class GameService:
         color: ColorChoice = ColorChoice.RANDOM,
         mode: GameMode = GameMode.REGULAR,
     ) -> Game:
+        if not MINIMUM_OPPONENT_ELO <= opponent_elo <= MAXIMUM_OPPONENT_ELO:
+            raise InvalidGameSettingsError(
+                f"opponent Elo must be between {MINIMUM_OPPONENT_ELO} and {MAXIMUM_OPPONENT_ELO}"
+            )
         if color is ColorChoice.RANDOM:
             color = random.choice([ColorChoice.WHITE, ColorChoice.BLACK])
         with Session(self._engine, expire_on_commit=False) as session:
@@ -86,24 +105,33 @@ class GameService:
 
     async def play_move(self, game_id: int, uci: str) -> Game:
         """Apply the player's move, then let the opponent answer if the game goes on."""
-        with Session(self._engine, expire_on_commit=False) as session:
-            game = self._active_game(session, game_id)
-            board = self._board(session, game_id)
-            if board.turn != chess_color(game.player_color):
-                raise NotPlayersTurnError("it is the opponent's turn")
-            move = self._parse_legal_move(board, uci)
-            self._push(session, game, board, move)
-            session.commit()
-        return await self.play_opponent_move(game_id)
+        async with self._move_lock:
+            with Session(self._engine, expire_on_commit=False) as session:
+                game = self._active_game(session, game_id)
+                board = self._board(session, game_id)
+                if board.turn != chess_color(game.player_color):
+                    raise NotPlayersTurnError("it is the opponent's turn")
+                move = self._parse_legal_move(board, uci)
+                self._push(session, game, board, move)
+                session.commit()
+            return await self._reply(game_id)
 
     async def play_opponent_move(self, game_id: int) -> Game:
-        """Play the opponent's move if due, else do nothing; also retries a failed reply."""
+        """Play the opponent's move if it is due; call again after an OpponentUnavailableError."""
+        async with self._move_lock:
+            return await self._reply(game_id)
+
+    async def _reply(self, game_id: int) -> Game:
         with Session(self._engine, expire_on_commit=False) as session:
             game = self._get(session, game_id)
             board = self._board(session, game_id)
             if game.status is not GameStatus.ACTIVE or board.turn == chess_color(game.player_color):
                 return game
-            move = await self._opponent.choose_move(board, game.opponent_elo)
+            try:
+                move = await self._opponent.choose_move(board, game.opponent_elo)
+            # The engine is an external process: any failure there means no reply.
+            except Exception as error:
+                raise OpponentUnavailableError("the opponent engine did not reply") from error
             self._push(session, game, board, move)
             session.commit()
             return game

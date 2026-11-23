@@ -1,3 +1,4 @@
+import asyncio
 import io
 from collections.abc import Iterator
 
@@ -15,7 +16,9 @@ from chess_tutor.games.service import (
     GameNotFoundError,
     GameService,
     IllegalMoveError,
+    InvalidGameSettingsError,
     NotPlayersTurnError,
+    OpponentUnavailableError,
     board_result,
 )
 from chess_tutor.main import create_app
@@ -38,6 +41,7 @@ class ScriptedOpponent:
 
     async def choose_move(self, board: chess.Board, elo: int) -> chess.Move:
         self.elos.append(elo)
+        await asyncio.sleep(0)  # a real engine yields while it thinks
         return board.parse_san(self._remaining.pop(0))
 
 
@@ -130,7 +134,7 @@ async def test_unknown_game_is_reported(engine: Engine) -> None:
 async def test_player_cannot_move_while_the_opponents_reply_is_pending(engine: Engine) -> None:
     service = service_with(engine)  # an empty script makes the opponent fail after the player moves
     game = await service.create_game(PLAYER_ID, 800, ColorChoice.WHITE)
-    with pytest.raises(IndexError):
+    with pytest.raises(OpponentUnavailableError):
         await service.play_move(game.id, "e2e4")
 
     with pytest.raises(NotPlayersTurnError):
@@ -265,3 +269,21 @@ def test_app_starts_maia_and_exposes_the_game_service(settings: Settings) -> Non
     app = create_app(enabled)
     with TestClient(app):
         assert isinstance(app.state.game_service, GameService)
+
+
+@pytest.mark.parametrize("elo", [0, 399, 3001])
+async def test_out_of_range_opponent_elo_is_rejected(engine: Engine, elo: int) -> None:
+    with pytest.raises(InvalidGameSettingsError):
+        await service_with(engine).create_game(PLAYER_ID, elo, ColorChoice.WHITE)
+
+
+async def test_concurrent_reply_requests_produce_one_opponent_move(engine: Engine) -> None:
+    service = service_with(engine, "e5", "Nc6")
+    game = await service.create_game(PLAYER_ID, 800, ColorChoice.WHITE)
+
+    await asyncio.gather(
+        service.play_move(game.id, "e2e4"),
+        service.play_opponent_move(game.id),
+    )
+
+    assert move_count(engine, game.id) == 2
