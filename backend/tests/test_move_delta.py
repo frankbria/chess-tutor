@@ -1,10 +1,19 @@
 from collections.abc import AsyncIterator
 
 import chess
+import chess.engine
 import pytest
 
-from chess_tutor.analysis.move_delta import MoveDelta, move_delta, threat_probe
-from chess_tutor.engines.stockfish import StockfishPool
+from chess_tutor.analysis.classification import analyse_position
+from chess_tutor.analysis.move_delta import (
+    THREAT_MIN_SWING,
+    MoveDelta,
+    _new_facts_after,
+    _threat_swing,
+    move_delta,
+    threat_probe,
+)
+from chess_tutor.engines.stockfish import Budget, StockfishPool
 from chess_tutor.facts.models import Fact, FactType, Side
 from chess_tutor.facts.packet import build_fact_packet
 from chess_tutor.settings import Settings
@@ -131,3 +140,55 @@ async def test_a_move_that_ends_the_game_has_no_reply(pool: StockfishPool) -> No
 
     assert delta.reply is None
     assert delta.win_probability_after == 100.0
+
+
+async def test_a_blunder_that_still_saves_the_threatened_piece_is_not_an_ignored_threat(
+    pool: StockfishPool,
+) -> None:
+    delta = await move_delta(
+        chess.Board(BISHOP_ATTACKED_BY_PAWN), chess.Move.from_uci("c4f7"), pool
+    )
+
+    assert all(fact.type is not FactType.IGNORED_THREAT for fact in delta.facts)
+    assert any(fact.type is FactType.ALLOWS for fact in delta.facts)
+
+
+async def test_a_threat_ignored_for_counterplay_is_still_flagged(pool: StockfishPool) -> None:
+    delta = await move_delta(
+        chess.Board(BISHOP_ATTACKED_BY_PAWN), chess.Move.from_uci("d1h5"), pool
+    )
+
+    assert fact_of(delta, FactType.IGNORED_THREAT).san_lines == [["bxc4"]]
+
+
+async def test_a_threat_outside_the_top_replies_is_evaluated_directly(pool: StockfishPool) -> None:
+    board_after = chess.Board(BISHOP_ATTACKED_BY_PAWN)
+    board_after.push(chess.Move.from_uci("g1f3"))
+    best_replies = await analyse_position(pool, board_after, Budget.STANDARD)
+
+    pointless = await _threat_swing(board_after, chess.Move.from_uci("a7a6"), best_replies, pool)
+    winning = await _threat_swing(board_after, chess.Move.from_uci("b5c4"), [], pool)
+
+    assert pointless < -THREAT_MIN_SWING
+    assert winning == 0.0  # no alternatives to compare with
+
+
+async def test_a_mated_side_to_move_scores_as_a_loss(pool: StockfishPool) -> None:
+    board = chess.Board("R5k1/5ppp/8/8/8/8/5PPP/6K1 b - - 0 1")
+
+    line = (await analyse_position(pool, board, Budget.QUICK))[0]
+
+    assert line.side_to_move_score == -chess.engine.MateGiven
+    assert line.white_score == chess.engine.MateGiven
+
+
+def test_facts_already_in_the_reference_position_are_not_new() -> None:
+    forking = chess.Board("3qk2r/pp3ppp/8/8/6Q1/8/PPn2PPP/R3K1N1 b - - 0 1")
+    before_the_fork = chess.Board("3qk2r/pp3ppp/8/8/1n4Q1/8/PP3PPP/R3K1N1 b - - 0 1")
+    quiet_reply = chess.Move.from_uci("a7a6")
+
+    credited = _new_facts_after(before_the_fork, forking, quiet_reply, Side.BLACK)
+    not_credited = _new_facts_after(forking, forking, quiet_reply, Side.BLACK)
+
+    assert any(fact.type is FactType.FORK for fact in credited)
+    assert all(fact.type is not FactType.FORK for fact in not_credited)

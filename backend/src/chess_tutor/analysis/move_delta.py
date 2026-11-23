@@ -4,6 +4,7 @@
 from the coach (Active mode, before lock-in) without touching anything else.
 """
 
+import asyncio
 from dataclasses import dataclass, field
 
 import chess
@@ -110,13 +111,15 @@ async def threat_probe(
     quiet = ThreatReport(side_of(opponent), 0.0, 0.0)
     if board.is_check() or board.is_game_over():
         return quiet
-    current = (await analyse_position(pool, board, budget))[0]
     with_null_move = board.copy(stack=False)
     with_null_move.push(chess.Move.null())
     # A board whose history holds a null move can't be replayed to the engine, which then
     # answers for a stale position; start a fresh history from the same placement.
     skipped = with_null_move.copy(stack=False)
-    probed = (await analyse_position(pool, skipped, budget))[0]
+    current_lines, probed_lines = await asyncio.gather(
+        analyse_position(pool, board, budget), analyse_position(pool, skipped, budget)
+    )
+    current, probed = current_lines[0], probed_lines[0]
     before = win_probability_for(current, opponent)
     after = win_probability_for(probed, opponent)
     report = ThreatReport(side_of(opponent), before, after)
@@ -133,7 +136,9 @@ async def threat_probe(
     )
 
 
-def _ignored_threat_fact(board: chess.Board, report: ThreatReport, threat: chess.Move) -> Fact:
+def _ignored_threat_fact(
+    board: chess.Board, report: ThreatReport, threat: chess.Move, swing: float
+) -> Fact:
     refs = _move_refs(board, threat)
     assert report.san is not None
     return Fact(
@@ -144,7 +149,7 @@ def _ignored_threat_fact(board: chess.Board, report: ThreatReport, threat: chess
             f"{report.threatening_side.value} threatens {report.san}, and the move "
             "did not deal with it"
         ),
-        severity=round(report.win_probability_after - report.win_probability_before),
+        severity=round(swing),
         squares=[ref.square for ref in refs],
         pieces=refs,
         san_lines=[[report.san]],
@@ -170,16 +175,40 @@ def _allows_fact(
     )
 
 
+async def _threat_swing(
+    board_after: chess.Board,
+    threat: chess.Move,
+    replies: list[AnalysedLine],
+    pool: StockfishPool,
+) -> float:
+    """What playing `threat` gains the opponent over its best other reply in the position
+    after our move, in win-probability points. A threat outside the analysed replies is
+    evaluated directly."""
+    opponent = board_after.turn
+    threat_line = next((line for line in replies if line.pv[:1] == [threat]), None)
+    if threat_line is None:
+        played = board_after.copy(stack=False)
+        played.push(threat)
+        threat_line = (await analyse_position(pool, played, Budget.QUICK))[0]
+    win_with_threat = win_probability_for(threat_line, opponent)
+    alternatives = [
+        win_probability_for(line, opponent) for line in replies if line.pv[:1] != [threat]
+    ]
+    return win_with_threat - max(alternatives, default=win_with_threat)
+
+
 async def move_delta(board: chess.Board, move: chess.Move, pool: StockfishPool) -> MoveDelta:
     """What `move` (played or proposed) does: the evaluation change, the engine's best
     alternative, what the opponent's best reply creates, and any threat the move left standing."""
     mover = board.turn
     move_san = board.san(move)
-    threats = await threat_probe(board, pool)
-    before = await analyse_position(pool, board, Budget.STANDARD, multipv=2)
     board_after = board.copy(stack=False)
     board_after.push(move)
-    after = await analyse_position(pool, board_after, Budget.STANDARD, multipv=REPLY_LINES)
+    threats, before, after = await asyncio.gather(
+        threat_probe(board, pool),
+        analyse_position(pool, board, Budget.STANDARD, multipv=2),
+        analyse_position(pool, board_after, Budget.STANDARD, multipv=REPLY_LINES),
+    )
 
     win_before = win_probability_for(before[0], mover)
     win_after = win_probability_for(after[0], mover)
@@ -190,19 +219,14 @@ async def move_delta(board: chess.Board, move: chess.Move, pool: StockfishPool) 
 
     if reply_line is not None and win_before - win_after >= THREAT_MIN_SWING:
         allowed_facts = _new_facts_after(
-            board, board_after, reply_line.pv[0], side_of(board_after.turn)
+            board_after, board_after, reply_line.pv[0], side_of(board_after.turn)
         )
         facts.append(_allows_fact(board_after, reply_line, win_before - win_after, allowed_facts))
 
     if threats.move is not None and board_after.is_legal(threats.move):
-        threat_line = next((line for line in after if line.pv[:1] == [threats.move]), None)
-        # Still a threat if the engine rates the move as a real gain over how the opponent stood.
-        if (
-            threat_line is not None
-            and win_probability_for(threat_line, not mover) - threats.win_probability_before
-            >= THREAT_MIN_SWING
-        ):
-            facts.append(_ignored_threat_fact(board, threats, threats.move))
+        swing = await _threat_swing(board_after, threats.move, after, pool)
+        if swing >= THREAT_MIN_SWING:
+            facts.append(_ignored_threat_fact(board, threats, threats.move, swing))
 
     return MoveDelta(
         move_san=move_san,

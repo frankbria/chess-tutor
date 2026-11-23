@@ -196,5 +196,6 @@ async def analyse_position(
             white_score = (
                 chess.engine.MateGiven if outcome.winner == chess.WHITE else -chess.engine.MateGiven
             )
-        return [AnalysedLine(white_score=white_score, side_to_move_score=white_score, pv=[])]
+        side_to_move_score = white_score if board.turn == chess.WHITE else -white_score
+        return [AnalysedLine(white_score=white_score, side_to_move_score=side_to_move_score, pv=[])]
     return await pool.analyse(board, budget, multipv=multipv)
