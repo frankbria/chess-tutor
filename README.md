@@ -19,3 +19,15 @@ uv run uvicorn chess_tutor.main:create_app --factory --reload   # http://127.0.0
 uv run pytest                                                   # tests + coverage (fails under 85%)
 uv run ruff check && uv run black --check . && uv run mypy src tests
 ```
+
+## Running the frontend
+
+Requires Node 24+.
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://localhost:3000 (installable PWA; open on a phone over LAN/Tailscale)
+npm test             # vitest + Testing Library
+npm run lint && npm run typecheck && npm run build
+```
