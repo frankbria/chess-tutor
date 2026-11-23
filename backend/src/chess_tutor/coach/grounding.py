@@ -17,6 +17,8 @@ Rules `validate_reply` enforces on `reply.text`:
 - a bare square right after move wording ("play e4", "then e5", "try d4") is read as a move and
   needs a verified line, not just a cited square;
 - Active mode before lock-in: the best move's SAN may not appear at all;
+- the reply may not talk about a correction ("Good catch", "Let me redo", "Sorry", "rewrite",
+  "my previous reply"): such text is for the operator, never for the student;
 - text with no concrete move or square needs no fact.
 """
 
@@ -61,6 +63,16 @@ _MOVE_WORDING = re.compile(
     rf"({_SQUARE})(?!\w)",
     re.IGNORECASE,
 )
+_CORRECTION_OPENING = re.compile(
+    r"^\W*(?:good catch|let me (?:redo|rewrite|fix|try again)|sorry|my (?:mistake|apologies)"
+    r"|i apologi[sz]e|you'?re right,? (?:let me|i)|thanks for (?:catching|pointing))",
+    re.IGNORECASE,
+)
+_CORRECTION_WORDING = re.compile(
+    r"\b(?:correction|rewrit(?:e|ing|ten)|corrected (?:reply|version)"
+    r"|(?:my )?(?:previous|earlier|first) (?:reply|answer|message|draft))\b",
+    re.IGNORECASE,
+)
 _NO_CHECK_MARK = str.maketrans("", "", "+#")
 
 FACT_LABELS: dict[FactType, str] = {
@@ -94,6 +106,7 @@ class GroundingErrorKind(StrEnum):
     UNVERIFIED_MOVE = "unverified_move"
     PIECE_MISMATCH = "piece_mismatch"
     BEST_MOVE_LEAK = "best_move_leak"
+    META_COMMENTARY = "meta_commentary"
 
 
 @dataclass(frozen=True)
@@ -215,7 +228,15 @@ def _error(kind: GroundingErrorKind, message: str) -> GroundingError:
 
 def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingError]:
     shown = {fact.id: fact for fact in visible_facts(context)}
-    errors = [
+    errors: list[GroundingError] = []
+    if _CORRECTION_OPENING.search(reply.text) or _CORRECTION_WORDING.search(reply.text):
+        errors.append(
+            _error(
+                GroundingErrorKind.META_COMMENTARY,
+                "Your reply talks about a correction. Write only the coaching message itself.",
+            )
+        )
+    errors += [
         _error(
             GroundingErrorKind.UNKNOWN_FACT,
             f"Your reply cited fact id {fact_id!r}, which does not exist. Cite only given ids.",
@@ -327,8 +348,14 @@ def template_reply(context: CoachContext) -> CoachReply:
     )
 
 
-def _feedback(errors: list[GroundingError]) -> str:
-    return " ".join(error.message for error in errors)
+def _correction(draft: CoachReply, errors: list[GroundingError]) -> str:
+    """An operator instruction: the draft stays inside it so the model never answers a 'user'."""
+    problems = " ".join(error.message for error in errors)
+    return (
+        f"Your previous coaching reply was: {draft.model_dump_json()}\n"
+        f"Rewrite your previous coaching reply. Problems: {problems} "
+        "Output only the corrected reply for the student; never refer to this correction."
+    )
 
 
 async def coach_reply_with_grounding(model: LanguageModel, context: CoachContext) -> GroundedReply:
@@ -351,8 +378,7 @@ async def coach_reply_with_grounding(model: LanguageModel, context: CoachContext
             system=system,
             messages=[
                 *messages,
-                ChatMessage("assistant", first.parsed.model_dump_json()),
-                ChatMessage("user", _feedback(errors)),
+                ChatMessage("system", _correction(first.parsed, errors)),
             ],
             schema=CoachReply,
         )

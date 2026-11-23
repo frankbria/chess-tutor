@@ -352,9 +352,11 @@ async def test_a_bad_first_reply_is_regenerated_with_the_errors_as_feedback() ->
     assert result.cost == pytest.approx(2 * USAGE.cost)
     first, second = model.calls
     assert list(second.messages[:1]) == list(first.messages)
-    assert [message.role for message in second.messages] == ["user", "assistant", "user"]
-    assert "h8, which is not in any cited fact" in second.messages[-1].content
-    assert BAD.text in second.messages[1].content
+    assert [message.role for message in second.messages] == ["user", "system"]
+    correction = second.messages[-1].content
+    assert "h8, which is not in any cited fact" in correction
+    assert BAD.text in correction
+    assert "never refer to this correction" in correction
 
 
 async def test_two_bad_replies_fall_back_to_a_valid_template() -> None:
@@ -546,4 +548,85 @@ def test_a_verified_capture_on_a_cited_square_makes_the_new_occupant_valid() -> 
     assert validate_reply(reply("The rook on a8 is attacked.", FORK), context_for()) == []
     assert GroundingErrorKind.PIECE_MISMATCH in kinds(
         reply(text.replace("knight on a8", "bishop on a8"), FORK), context_for()
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Good catch! After Nc7+ the rook falls.",
+        "Let me redo that. Watch the rook on a8.",
+        "Sorry about that, here is a better note.",
+        "Here is a correction: keep an eye on forks.",
+        "I will rewrite my previous reply: develop your pieces.",
+    ],
+)
+def test_replies_that_address_the_correction_are_rejected(text: str) -> None:
+    assert GroundingErrorKind.META_COMMENTARY in kinds(reply(text, FORK), context_for())
+
+
+def test_ordinary_coaching_is_not_meta_commentary() -> None:
+    text = "You're right, that is a fork. Keep looking for pieces that can be hit at once."
+
+    assert validate_reply(reply(text), context_for()) == []
+
+
+class FirstReplyThenRealModel:
+    """Our own LanguageModel: a fixed bad first reply, then the real model for the retry."""
+
+    def __init__(self, first: CoachReply, real: AnthropicLanguageModel) -> None:
+        self._first: CoachReply | None = first
+        self._real = real
+        self.retry_text = ""
+
+    async def structured[ParsedModel: BaseModel](
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        messages: Sequence[ChatMessage],
+        schema: type[ParsedModel],
+    ) -> StructuredReply[ParsedModel]:
+        if self._first is not None:
+            first, self._first = self._first, None
+            if not isinstance(first, schema):
+                raise AssertionError("schema mismatch")
+            return StructuredReply(first, USAGE)
+        result = await self._real.structured(
+            tier=tier, system=system, messages=messages, schema=schema
+        )
+        self.retry_text = str(result.parsed)
+        return result
+
+    def stream_text(
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        messages: Sequence[ChatMessage],
+        on_usage: Callable[[Usage], None] | None = None,
+    ) -> AsyncIterator[str]:
+        return self._real.stream_text(
+            tier=tier, system=system, messages=messages, on_usage=on_usage
+        )
+
+
+@pytest.mark.llm
+async def test_real_regeneration_carries_no_meta_commentary() -> None:
+    settings = Settings(_env_file=None, llm_provider="anthropic")
+    try:
+        api_key = settings.llm_api_key.get_secret_value() if settings.llm_api_key else None
+        await anthropic.AsyncAnthropic(api_key=api_key).models.retrieve(settings.cheap_model)
+    except (anthropic.AuthenticationError, TypeError):
+        pytest.skip("no Anthropic credentials resolve (set ANTHROPIC_API_KEY or `ant auth login`)")
+    model = FirstReplyThenRealModel(
+        reply("Nc7+ forks the rook on h8 and the king.", FORK), AnthropicLanguageModel(settings)
+    )
+
+    result = await coach_reply_with_grounding(model, context_for())
+
+    print(f"REGENERATED ({result.source.value}): {result.text}")
+    assert result.source is ReplySource.LLM_REGENERATED
+    assert (
+        validate_reply(CoachReply(text=result.text, fact_ids=result.fact_ids), context_for()) == []
     )
