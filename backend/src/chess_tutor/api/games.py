@@ -51,6 +51,7 @@ from chess_tutor.games.service import (
     NotPlayersTurnError,
     OpponentUnavailableError,
     ProposalPendingError,
+    ProposalRequiredError,
     WrongModeError,
 )
 from chess_tutor.models import Game, GameMode, GameResult, GameStatus, PlayerColor, TimeControl
@@ -65,6 +66,7 @@ ERROR_STATUS: tuple[tuple[type[GameError], int], ...] = (
     (InvalidGameSettingsError, 422),
     (NotPlayersTurnError, 409),
     (WrongModeError, 409),
+    (ProposalRequiredError, 409),
     (NoProposalError, 409),
     (ProposalPendingError, 409),
     (GameNotActiveError, 409),

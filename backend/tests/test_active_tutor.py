@@ -177,16 +177,10 @@ def test_lock_in_is_blocked_after_the_game_ended(api: TestClient) -> None:
     assert api.post(f"/games/{game_id}/moves/lock").status_code == 409
 
 
-def test_a_proposal_left_over_from_an_earlier_move_is_replaced(
-    app: FastAPI, api: TestClient
-) -> None:
+def test_a_plain_move_in_an_active_game_is_refused(app: FastAPI, api: TestClient) -> None:
     game_id = create(api)
-    propose(api, game_id, "a2a4")
-    api.post(f"/games/{game_id}/moves", json={"uci": "e2e4"})  # played directly, not locked in
 
-    assert api.post(f"/games/{game_id}/moves/lock").status_code == 409
-    fresh = propose(api, game_id, "g1f3")
+    response = api.post(f"/games/{game_id}/moves", json={"uci": "e2e4"})
 
-    assert (fresh["ply"], fresh["rethinks"]) == (3, 0)
-    with Session(app.state.engine) as session:
-        assert len(session.scalars(select(MoveProposal)).all()) == 1
+    assert response.status_code == 409
+    assert api.get(f"/games/{game_id}").json()["moves"] == []

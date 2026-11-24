@@ -76,6 +76,10 @@ class NoProposalError(GameError):
     """Lock-in or rethink with no proposed move waiting."""
 
 
+class ProposalRequiredError(GameError):
+    """An Active tutor game takes its moves through propose and lock-in."""
+
+
 class ProposalPendingError(GameError):
     """A move is already proposed: rethink it before proposing another."""
 
@@ -172,6 +176,8 @@ class GameService:
 
     async def play_move(self, game_id: int, uci: str) -> Game:
         """Apply the player's move, then let the opponent answer if the game goes on."""
+        if self.get_game(game_id).mode is GameMode.ACTIVE:
+            raise ProposalRequiredError("propose the move, then lock it in")
         return await self._commit_player_move(game_id, uci)
 
     async def lock_in(self, game_id: int) -> Game:
@@ -213,12 +219,7 @@ class GameService:
                 self._parse_legal_move(board, uci)
                 ply = len(board.move_stack) + 1
                 proposal = self._proposal_row(session, game_id)
-                if (
-                    proposal is None or proposal.ply != ply
-                ):  # none yet, or left from an earlier move
-                    if proposal is not None:
-                        session.delete(proposal)
-                        session.flush()
+                if proposal is None:
                     proposal = MoveProposal(game_id=game_id, ply=ply, rethinks=0)
                     session.add(proposal)
                 elif proposal.uci is not None:

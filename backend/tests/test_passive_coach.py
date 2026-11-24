@@ -161,7 +161,13 @@ def test_ordinary_good_moves_make_no_llm_call(settings: Settings) -> None:
 def test_other_modes_get_no_coaching(settings: Settings, mode: str) -> None:
     model = scripted()
     with started(settings, model, mode) as harness:
-        harness.play(4)
+        if mode == "active":
+            for uci in PLAYER_MOVES[:4]:
+                body = {"uci": uci, "propose": True}
+                assert harness.api.post(f"/games/{harness.game_id}/moves", json=body).is_success
+                assert harness.api.post(f"/games/{harness.game_id}/moves/lock").is_success
+        else:
+            harness.play(4)
 
         assert model.calls == [] and harness.comments() == []
         with Session(harness.app.state.engine) as session:
