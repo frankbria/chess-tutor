@@ -1,19 +1,52 @@
 "use client";
 
-import { ArrowDown01Icon, ArrowUp01Icon, BubbleChatIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowDown01Icon,
+  ArrowUp01Icon,
+  BubbleChatIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import type { CoachMessage, CoachMessageKind } from "@/lib/game-api";
 import { cn } from "@/lib/utils";
 
-const CLASSIFICATION_STYLE: Record<string, { symbol: string; label: string; tone: string }> = {
-  brilliant: { symbol: "!!", label: "Brilliant", tone: "bg-primary text-primary-foreground" },
-  great: { symbol: "!", label: "Great move", tone: "bg-primary/80 text-primary-foreground" },
-  inaccuracy: { symbol: "?!", label: "Inaccuracy", tone: "bg-accent text-accent-foreground" },
-  mistake: { symbol: "?", label: "Mistake", tone: "bg-destructive/80 text-white" },
-  blunder: { symbol: "??", label: "Blunder", tone: "bg-destructive text-white" },
+const CLASSIFICATION_STYLE: Record<
+  string,
+  { symbol: string; label: string; tone: string }
+> = {
+  brilliant: {
+    symbol: "!!",
+    label: "Brilliant",
+    tone: "bg-primary text-primary-foreground",
+  },
+  great: {
+    symbol: "!",
+    label: "Great move",
+    tone: "bg-primary/80 text-primary-foreground",
+  },
+  inaccuracy: {
+    symbol: "?!",
+    label: "Inaccuracy",
+    tone: "bg-accent text-accent-foreground",
+  },
+  mistake: {
+    symbol: "?",
+    label: "Mistake",
+    tone: "bg-destructive/80 text-white",
+  },
+  blunder: {
+    symbol: "??",
+    label: "Blunder",
+    tone: "bg-destructive text-white",
+  },
 };
 
 const KIND_STYLE: Record<CoachMessageKind, string> = {
@@ -39,29 +72,57 @@ function moveLabel(ply: number, san: string | undefined) {
   return ply % 2 === 1 ? `${number}. ${san}` : `${number}... ${san}`;
 }
 
-function Message({ message, san }: { message: CoachMessage; san: string | undefined }) {
-  const badge = message.classification ? CLASSIFICATION_STYLE[message.classification] : undefined;
+const hintLabel = (message: CoachMessage) =>
+  message.hint_level
+    ? `${KIND_LABEL[message.kind]} ${message.hint_level}`
+    : KIND_LABEL[message.kind];
+
+function Message({
+  message,
+  san,
+}: {
+  message: CoachMessage;
+  san: string | undefined;
+}) {
+  const badge = message.classification
+    ? CLASSIFICATION_STYLE[message.classification]
+    : undefined;
   return (
     <li
       data-kind={message.kind}
-      className={cn("flex flex-col gap-1 rounded-md border border-l-4 p-3 text-sm", KIND_STYLE[message.kind])}
+      className={cn(
+        "flex flex-col gap-1 rounded-md border border-l-4 p-3 text-sm",
+        KIND_STYLE[message.kind],
+      )}
     >
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span className="font-semibold uppercase">{KIND_LABEL[message.kind]}</span>
+        <span className="font-semibold uppercase">{hintLabel(message)}</span>
         <span className="font-mono">{moveLabel(message.ply, san)}</span>
-        <span className="rounded border px-1.5 py-0.5 capitalize">{message.phase}</span>
+        <span className="rounded border px-1.5 py-0.5 capitalize">
+          {message.phase}
+        </span>
         {badge && (
           <span
             title={badge.label}
             aria-label={badge.label}
-            className={cn("rounded px-1.5 py-0.5 font-mono text-xs font-bold", badge.tone)}
+            className={cn(
+              "rounded px-1.5 py-0.5 font-mono text-xs font-bold",
+              badge.tone,
+            )}
           >
             {badge.symbol}
           </span>
         )}
       </div>
-      <p className={cn("break-words", message.kind === "skipped" && "italic text-muted-foreground")}>
-        {message.kind === "skipped" ? "You skipped this question." : message.text}
+      <p
+        className={cn(
+          "break-words",
+          message.kind === "skipped" && "italic text-muted-foreground",
+        )}
+      >
+        {message.kind === "skipped"
+          ? "You skipped this question."
+          : message.text}
       </p>
     </li>
   );
@@ -78,7 +139,12 @@ interface CoachPanelProps {
 }
 
 /** A side panel from `md` up; on a phone a bar above the bottom nav that expands into the history. */
-export function CoachPanel({ messages, moves, onSend, onSkip }: CoachPanelProps) {
+export function CoachPanel({
+  messages,
+  moves,
+  onSend,
+  onSkip,
+}: CoachPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [seenCount, setSeenCount] = useState(0);
   const [draft, setDraft] = useState("");
@@ -132,7 +198,9 @@ export function CoachPanel({ messages, moves, onSend, onSkip }: CoachPanelProps)
         <HugeiconsIcon icon={BubbleChatIcon} className="size-5 text-primary" />
         <span className="font-semibold">Coach</span>
         {!expanded && latest && (
-          <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground">{latest.text}</span>
+          <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground">
+            {latest.text}
+          </span>
         )}
         {unread > 0 && (
           <span
@@ -143,26 +211,46 @@ export function CoachPanel({ messages, moves, onSend, onSkip }: CoachPanelProps)
             <span className="sr-only"> unread</span>
           </span>
         )}
-        <HugeiconsIcon icon={expanded ? ArrowDown01Icon : ArrowUp01Icon} className="ml-auto size-4" />
+        <HugeiconsIcon
+          icon={expanded ? ArrowDown01Icon : ArrowUp01Icon}
+          className="ml-auto size-4"
+        />
       </Button>
       <h2 className="hidden min-h-12 items-center gap-2 px-3 py-2 font-semibold md:flex">
         <HugeiconsIcon icon={BubbleChatIcon} className="size-5 text-primary" />
         Coach
       </h2>
-      <div aria-live="polite" role="status" className="sr-only" data-testid="coach-live-region">
+      <div
+        aria-live="polite"
+        role="status"
+        className="sr-only"
+        data-testid="coach-live-region"
+      >
         {latest?.text}
       </div>
-      <div id="coach-history" className={cn("min-w-0 flex-col gap-3 px-3 pb-3", expanded ? "flex" : "hidden md:flex")}>
+      <div
+        id="coach-history"
+        className={cn(
+          "min-w-0 flex-col gap-3 px-3 pb-3",
+          expanded ? "flex" : "hidden md:flex",
+        )}
+      >
         <ol
           ref={listRef}
           aria-label="Coach messages"
           className="flex max-h-[40vh] min-h-24 flex-col gap-2 overflow-y-auto md:max-h-96"
         >
           {messages.length === 0 && (
-            <li className="text-sm text-muted-foreground">The coach will comment on your notable moves here.</li>
+            <li className="text-sm text-muted-foreground">
+              The coach will comment on your notable moves here.
+            </li>
           )}
           {messages.map((message, index) => (
-            <Message key={`${message.ply}-${message.role}-${message.kind}-${index}`} message={message} san={moves[message.ply - 1]} />
+            <Message
+              key={`${message.ply}-${message.role}-${message.kind}-${index}`}
+              message={message}
+              san={moves[message.ply - 1]}
+            />
           ))}
         </ol>
         <form onSubmit={send} className="flex gap-2">
@@ -171,7 +259,13 @@ export function CoachPanel({ messages, moves, onSend, onSkip }: CoachPanelProps)
             value={draft}
             disabled={!onSend}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder={onSend ? (onSkip ? "What was your thought?" : "Ask the coach…") : "Questions and answers unlock in a later update"}
+            placeholder={
+              onSend
+                ? onSkip
+                  ? "What was your thought?"
+                  : "Ask the coach…"
+                : "Questions and answers unlock in a later update"
+            }
             className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm outline-none transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
           />
           <Button type="submit" disabled={!onSend || !draft.trim()}>

@@ -101,8 +101,12 @@ class PassiveCoach:
     def is_coaching(self, game_id: int) -> bool:
         return self._pending.get(game_id, 0) > 0
 
-    def schedule(self, game_id: int, ply: int) -> None:
-        self._spawn(game_id, lambda: self.coach_move(game_id, ply), f"coaching ply {ply}")
+    def schedule(self, game_id: int, ply: int, *, skipped_question: bool = False) -> None:
+        self._spawn(
+            game_id,
+            lambda: self.coach_move(game_id, ply, skipped_question=skipped_question),
+            f"coaching ply {ply}",
+        )
 
     def answer_question(self, game_id: int, text: str) -> None:
         """Store the answer to the open question now; the coach replies in the background."""
@@ -112,7 +116,7 @@ class PassiveCoach:
     def skip_question(self, game_id: int) -> None:
         """A skipped question still owes the player the normal comment on that move."""
         ply = self._close_question(game_id, CoachMessageKind.SKIPPED, "")
-        self.schedule(game_id, ply)
+        self.schedule(game_id, ply, skipped_question=True)
 
     def _close_question(self, game_id: int, kind: CoachMessageKind, text: str) -> int:
         with Session(self._engine) as session:
@@ -223,8 +227,11 @@ class PassiveCoach:
         except Exception:
             logger.exception("summarising game %s failed", game_id)
 
-    async def coach_move(self, game_id: int, ply: int) -> None:
-        """Classify the player's move at `ply`, tag its concepts, and comment if it is notable."""
+    async def coach_move(self, game_id: int, ply: int, *, skipped_question: bool = False) -> None:
+        """Classify the player's move at `ply`, tag its concepts, and comment if it is notable.
+
+        A skipped question's comment is owed to the player, so it ignores the comment spacing.
+        """
         try:
             stored = await classify_stored_move(
                 self._engine, self._pool, game_id, ply, self._settings.thresholds.classification
@@ -272,7 +279,7 @@ class PassiveCoach:
         if ask:
             self._ask_thought(game_id, stored, classification, phase, delta.move_san)
             return
-        if self._model is None or not self._due(game_id, ply):
+        if self._model is None or not (skipped_question or self._due(game_id, ply)):
             return
         context = self._context(
             game_id, board, delta, phase, concepts, CoachEvent.COMMENT_ON_MOVE, None

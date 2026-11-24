@@ -44,6 +44,17 @@ describe("httpGameApi", () => {
     expect(requests.map((r) => `${r.method} ${r.url}`)).toEqual(["GET /games/7", "POST /games/7/resign", "POST /games/7/takeback"]);
   });
 
+  it("proposes, rethinks and locks in through the Active endpoints", async () => {
+    await httpGameApi.proposeMove(9, "e2e4");
+    expect(requests.at(-1)).toMatchObject({ method: "POST", url: "/games/9/moves", body: '{"uci":"e2e4","propose":true}' });
+    await httpGameApi.getPendingProposal(9);
+    expect(requests.at(-1)).toMatchObject({ method: "GET", url: "/games/9/moves/proposal" });
+    await httpGameApi.rethink(9);
+    expect(requests.at(-1)).toMatchObject({ method: "POST", url: "/games/9/moves/rethink" });
+    await httpGameApi.lockIn(9);
+    expect(requests.at(-1)).toMatchObject({ method: "POST", url: "/games/9/moves/lock" });
+  });
+
   it("fetches the persisted coach messages", async () => {
     await httpGameApi.getCoachMessages(7);
     expect(requests.at(-1)).toMatchObject({ method: "GET", url: "/games/7/coach/messages" });

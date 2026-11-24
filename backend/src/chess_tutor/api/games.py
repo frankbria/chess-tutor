@@ -347,6 +347,22 @@ async def play_move(
     )
 
 
+@router.get("/{game_id}/moves/proposal")
+def pending_proposal(game_id: int, service: Service) -> ProposalResponse | None:
+    proposal = service.pending_proposal(game_id)
+    if proposal is None or proposal.uci is None:
+        return None
+    return ProposalResponse(
+        analysis_id=proposal.id,
+        ply=proposal.ply,
+        uci=proposal.uci,
+        san=proposal.san,
+        rethinks=proposal.rethinks,
+        win_probability_before=proposal.win_probability_before,
+        win_probability_after=proposal.win_probability_after,
+    )
+
+
 @router.post("/{game_id}/moves/lock")
 async def lock_in(game_id: int, service: Service, events: Events, coach: Coach) -> GameResponse:
     service.get_game(game_id)  # a missing game is a 404 before any coroutine is created
@@ -383,6 +399,7 @@ class CoachMessageResponse(BaseModel):
     text: str
     classification: str | None = Field(description="The move's label, null if it was not scored")
     phase: GamePhase = Field(description="The game phase of the position before the move")
+    hint_level: int | None = Field(description="Active mode's hint rung (1 to 3), else null")
     created_at: datetime
 
 
@@ -410,6 +427,7 @@ def coach_messages(
             text=message.text,
             classification=classification,
             phase=detect_phase(chess.Board(fen_before), thresholds),
+            hint_level=message.hint_level,
             created_at=message.created_at,
         )
         for message, classification, fen_before in rows

@@ -19,6 +19,7 @@ Rules `validate_reply` enforces on `reply.text`:
   read as a move and needs a verified line, not just a cited square; "with <square>" counts unless a
   state word follows the square or square list, so "with a8 and e8 both attacked" stays descriptive;
 - Active mode before lock-in: the best move's SAN may not appear at all;
+- the reply may not name the hint ladder ("Level 2 pointer:"), which is internal to the prompt;
 - the reply may not talk about a correction ("Good catch", "Let me redo", "Sorry", "rewrite",
   "my previous reply"): such text is for the operator, never for the student;
 - text with no concrete move or square needs no fact.
@@ -85,6 +86,11 @@ _CORRECTION_WORDING = re.compile(
     r"|(?:my )?(?:previous|earlier|first) (?:reply|answer|message|draft))\b",
     re.IGNORECASE,
 )
+_LADDER_LABEL = re.compile(
+    r"\b(?:(?:hint )?level [1-3]\b(?: \(?(?:nudge|pointer|consequence)\)?)?:?"
+    r"|(?:nudge|pointer|consequence) level)",
+    re.IGNORECASE,
+)
 _NO_CHECK_MARK = str.maketrans("", "", "+#")
 
 FACT_LABELS: dict[FactType, str] = {
@@ -108,6 +114,7 @@ FACT_LABELS: dict[FactType, str] = {
 }
 LEVEL_ONE_NUDGE = "Before you commit, ask yourself: what can your opponent do next?"
 NO_FACT_TEMPLATE = "Take a moment to check what your opponent threatens before you move."
+ANSWER_ACKNOWLEDGEMENT = "Thanks for explaining. "
 THOUGHT_QUESTION = "What were you thinking when you played {move}?"
 _TEMPLATE_PRIORITY = {FactType.ALLOWS, FactType.IGNORED_THREAT}
 
@@ -119,6 +126,7 @@ class GroundingErrorKind(StrEnum):
     PIECE_MISMATCH = "piece_mismatch"
     BEST_MOVE_LEAK = "best_move_leak"
     META_COMMENTARY = "meta_commentary"
+    NO_FACT_CITED = "no_fact_cited"
 
 
 @dataclass(frozen=True)
@@ -241,6 +249,13 @@ def _error(kind: GroundingErrorKind, message: str) -> GroundingError:
 def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingError]:
     shown = {fact.id: fact for fact in visible_facts(context)}
     errors: list[GroundingError] = []
+    if _LADDER_LABEL.search(reply.text):
+        errors.append(
+            _error(
+                GroundingErrorKind.META_COMMENTARY,
+                "Your reply names the hint level. Write only the hint itself, with no label.",
+            )
+        )
     if _CORRECTION_OPENING.search(reply.text) or _CORRECTION_WORDING.search(reply.text):
         errors.append(
             _error(
@@ -256,6 +271,14 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
         for fact_id in reply.fact_ids
         if fact_id not in shown
     ]
+    if context.event is CoachEvent.ANSWER_QUESTION and shown and not reply.fact_ids:
+        errors.append(
+            _error(
+                GroundingErrorKind.NO_FACT_CITED,
+                "Your reply to the student's reasoning cites no fact. Respond to their idea "
+                "using at least one given fact, and cite its id.",
+            )
+        )
     cited = [shown[fact_id] for fact_id in reply.fact_ids if fact_id in shown]
     text = reply.text
     mentioned_moves = [match.group() for match in _SAN.finditer(text)]
@@ -353,12 +376,14 @@ def template_reply(context: CoachContext) -> CoachReply:
         return CoachReply(text=LEVEL_ONE_NUDGE, fact_ids=[])
     if context.event is CoachEvent.ASK_THOUGHT:
         return CoachReply(text=THOUGHT_QUESTION.format(move=context.move_san), fact_ids=[])
+    acknowledgement = ANSWER_ACKNOWLEDGEMENT if context.event is CoachEvent.ANSWER_QUESTION else ""
     facts = visible_facts(context)
     if not facts:
-        return CoachReply(text=NO_FACT_TEMPLATE, fact_ids=[])
+        return CoachReply(text=acknowledgement + NO_FACT_TEMPLATE, fact_ids=[])
     chosen = max(facts, key=lambda fact: (fact.type in _TEMPLATE_PRIORITY, fact.severity))
     return CoachReply(
-        text=_fact_template(chosen, context, context.hint_level), fact_ids=[chosen.id]
+        text=acknowledgement + _fact_template(chosen, context, context.hint_level),
+        fact_ids=[chosen.id],
     )
 
 

@@ -4,7 +4,14 @@ from test_passive_coach import COMMENT, GENERIC, UNGROUNDED, Harness, scripted, 
 
 from chess_tutor.api.events import CoachCommentEvent
 from chess_tutor.coach.prompt import CoachReply
-from chess_tutor.models import CoachMessage, ConceptEvent, Game
+from chess_tutor.models import (
+    CoachMessage,
+    CoachMessageKind,
+    CoachMessageSource,
+    CoachRole,
+    ConceptEvent,
+    Game,
+)
 from chess_tutor.settings import Settings
 
 ANSWER = "I thought my knight could win a pawn."
@@ -82,6 +89,26 @@ def test_skipping_closes_the_question_and_gives_the_normal_comment(settings: Set
             assert session.get_one(Game, harness.game_id).llm_cost > 0
         harness.play(1)  # a second key moment inside the spacing gets no new question
         assert [kind for _, _, kind in stored(harness)].count("question") == 1
+
+
+def test_the_comment_after_a_skip_ignores_the_comment_spacing(settings: Settings) -> None:
+    spaced = asking(settings).model_copy(update={"coach_comment_every_n_moves": 5})
+    with started(spaced, scripted(COMMENT)) as harness:
+        with Session(harness.app.state.engine) as session:
+            session.add(
+                CoachMessage(
+                    game_id=harness.game_id, ply=5, role=CoachRole.COACH,
+                    kind=CoachMessageKind.COMMENT, text="Earlier.", fact_ids="[]",
+                    source=CoachMessageSource.TEMPLATE, concepts="[]",
+                )  # fmt: skip
+            )
+            session.commit()
+        harness.play(4)
+        harness.api.post(f"/games/{harness.game_id}/coach/question/skip")
+        assert harness.api.portal is not None
+        harness.api.portal.call(harness.app.state.passive_coach.wait_until_idle)
+
+        assert stored(harness)[-1] == (7, "coach", "comment")
 
 
 def test_an_unanswered_question_blocks_the_next_one(settings: Settings) -> None:
