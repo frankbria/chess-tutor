@@ -148,6 +148,24 @@ class Move(Base):
     classification: Mapped[str | None] = mapped_column(default=None)
     eval_before: Mapped[float | None] = mapped_column(default=None)  # mover's win probability
     eval_after: Mapped[float | None] = mapped_column(default=None)
+    proposed_attempts: Mapped[int] = mapped_column(
+        default=0
+    )  # Active mode: rethinks before lock-in
+
+
+class MoveProposal(Base):
+    """Active mode's pending move for a game: not on the board until it is locked in."""
+
+    __tablename__ = "move_proposal"
+
+    id: Mapped[int] = mapped_column(primary_key=True)  # the analysis id handed to the client
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), unique=True)
+    ply: Mapped[int]
+    san: Mapped[str] = mapped_column(default="")  # of `uci`, taken when it was proposed
+    uci: Mapped[str | None] = mapped_column(default=None)  # None between a rethink and the next
+    rethinks: Mapped[int] = mapped_column(default=0)
+    win_probability_before: Mapped[float | None] = mapped_column(default=None)
+    win_probability_after: Mapped[float | None] = mapped_column(default=None)
 
 
 class RatingHistory(Base):
@@ -215,6 +233,21 @@ class CoachMessage(Base):
     fact_ids: Mapped[str]  # JSON list
     source: Mapped[CoachMessageSource] = mapped_column(string_enum(CoachMessageSource))
     concepts: Mapped[str]  # JSON list of concept values
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class GameSummary(Base):
+    __tablename__ = "game_summary"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), unique=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id"), index=True)
+    summary: Mapped[str]
+    key_moments: Mapped[str]  # JSON list of short sentences
+    concepts: Mapped[str]  # JSON list of concept values tagged in the game
+    source: Mapped[CoachMessageSource] = mapped_column(string_enum(CoachMessageSource))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

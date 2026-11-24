@@ -13,10 +13,28 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
-from chess_tutor.models import CoachMessage, CoachRole, ConceptState, ConceptStatus, Game
+from chess_tutor.models import (
+    CoachMessage,
+    CoachRole,
+    ConceptState,
+    ConceptStatus,
+    Game,
+    GameSummary,
+)
 
 RECENT_PHRASINGS_PER_CONCEPT = 3
+PAST_GAME_LOOKBACK = 20  # newest game summaries scanned for a matching concept
 PHRASING_LOOKBACK_MESSAGES = 50  # newest coach messages scanned across the player's games
+
+
+class PastGame(BaseModel):
+    """The player's most recent finished game in which a concept came up."""
+
+    model_config = ConfigDict(frozen=True)
+
+    date: str  # e.g. "2026-11-17, Tuesday"
+    summary: str
+    key_moments: list[str]
 
 
 class ConceptProfile(BaseModel):
@@ -28,6 +46,7 @@ class ConceptProfile(BaseModel):
     count: int  # finished games in which the concept occurred
     style: str
     recent_phrasings: list[str] = Field(default_factory=list)
+    last_game: PastGame | None = None
 
 
 class CoachProfile(BaseModel):
@@ -71,6 +90,7 @@ def build_coach_profile(
         row.concept: row
         for row in session.scalars(select(ConceptState).where(ConceptState.player_id == player_id))
     }
+    past_games = most_recent_game_per_concept(session, player_id)
     focus = [Concept(name) for name, row in rows.items() if row.state is ConceptStatus.FOCUS]
     entries = []
     for concept in dict.fromkeys([*concepts_in_play, *focus]):
@@ -86,6 +106,7 @@ def build_coach_profile(
                 recent_phrasings=list(recent_phrasings.get(concept, ()))[
                     -RECENT_PHRASINGS_PER_CONCEPT:
                 ],
+                last_game=past_games.get(concept),
             )
         )
     return CoachProfile(concepts=entries)
@@ -105,3 +126,33 @@ def stored_phrasings(session: Session, player_id: int) -> dict[Concept, list[str
         for name in json.loads(concepts):
             phrasings.setdefault(Concept(name), []).append(text)
     return phrasings
+
+
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
+def most_recent_game_per_concept(session: Session, player_id: int) -> dict[Concept, PastGame]:
+    """Summaries are scanned newest first, so the first one seen for a concept is its latest."""
+    rows = session.execute(
+        select(GameSummary, Game.ended_at)
+        .join(Game, Game.id == GameSummary.game_id)
+        .where(GameSummary.player_id == player_id)
+        .order_by(GameSummary.created_at.desc())
+        .limit(PAST_GAME_LOOKBACK)
+    )
+    latest: dict[Concept, PastGame] = {}
+    for summary, ended_at in rows:
+        try:
+            concepts = [Concept(name) for name in json.loads(summary.concepts)]
+            key_moments = json.loads(summary.key_moments)
+        except ValueError:  # corrupt JSON or a concept no longer in the taxonomy
+            continue
+        played = ended_at or summary.created_at
+        past_game = PastGame(
+            date=f"{played:%Y-%m-%d}, {WEEKDAYS[played.weekday()]}",
+            summary=summary.summary,
+            key_moments=key_moments,
+        )
+        for concept in concepts:
+            latest.setdefault(concept, past_game)
+    return latest

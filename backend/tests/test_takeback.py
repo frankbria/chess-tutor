@@ -109,7 +109,11 @@ async def test_nothing_to_take_back_before_the_players_first_move(engine: Engine
 async def test_takeback_is_refused_outside_passive_mode(engine: Engine, mode: GameMode) -> None:
     service = GameService(engine, ScriptedOpponent("e5"))
     game = await service.create_game(PLAYER_ID, 1200, ColorChoice.WHITE, mode)
-    await service.play_move(game.id, "e2e4")
+    if mode is GameMode.ACTIVE:  # Active moves are proposed, then locked in
+        await service.propose_move(game.id, "e2e4")
+        await service.lock_in(game.id)
+    else:
+        await service.play_move(game.id, "e2e4")
 
     with pytest.raises(TakebackNotAllowedError):
         await service.takeback(game.id)
