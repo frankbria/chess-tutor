@@ -50,6 +50,9 @@ export interface CoachMessage {
   phase: GamePhase;
   /** Active mode's hint ladder rung (1 to 3); only live hints carry it. */
   hint_level?: number | null;
+  /** Live only: the instant template line, until the final message with the same key replaces it. */
+  provisional?: boolean;
+  message_key?: string | null;
 }
 
 /** An Active-mode move that is shown but not yet played. */
@@ -70,6 +73,10 @@ export interface GameStreamHandlers {
     hint_level?: number | null;
     /** Absent on older servers; a plain comment then. */
     kind?: CoachMessageKind;
+    provisional?: boolean;
+    message_key?: string | null;
+    /** The reply for this key was dropped: remove its provisional line. */
+    retracted?: boolean;
   }) => void;
   onSnapshot: (event: { fen: string; status: string }) => void;
   onOpponentMove: (event: {

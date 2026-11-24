@@ -60,9 +60,11 @@ function Message({
   return (
     <li
       data-kind={message.kind}
+      data-provisional={message.provisional || undefined}
       className={cn(
-        "flex flex-col gap-1 rounded-md border border-l-4 p-3 text-sm",
+        "flex flex-col gap-1 rounded-md border border-l-4 p-3 text-sm transition-all",
         KIND_STYLE[message.kind],
+        message.provisional && "italic opacity-70",
       )}
     >
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

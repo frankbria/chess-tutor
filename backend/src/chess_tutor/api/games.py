@@ -23,6 +23,9 @@ equal to the object's `type`:
   seconds), so the comment comes first; past that cap it is only stored. `source` is `llm`,
   `llm_regenerated` or `template`.
 
+- A Passive comment or Active hint is first sent as a template with `provisional: true` and a
+  `message_key`; the final event with the same key replaces it. Only the final one is stored.
+
 - `coach_comment` also carries `kind`: `comment` (default), `question` or `answer`. In Passive mode
   the coach asks "what were you thinking?" (`kind` "question", no LLM call, `classification` the
   move's label) in place of a comment on a Mistake, Blunder, Great or Brilliant move, at most once

@@ -388,23 +388,65 @@ describe("GameOverDialog", () => {
     ["1-0", "white", "You won!"],
     ["1-0", "black", "You lost"],
     ["1/2-1/2", "white", "Draw"],
-  ] as const)("titles %s for %s as %s and shows the reason", (result, color, title) => {
-    render(<GameOverDialog gameId={7} open result={result} reason="threefold_repetition" playerColor={color} onClose={() => undefined} />);
-    expect(screen.getByRole("dialog", { name: title })).toHaveTextContent("by threefold repetition");
-  });
+  ] as const)(
+    "titles %s for %s as %s and shows the reason",
+    (result, color, title) => {
+      render(
+        <GameOverDialog
+          gameId={7}
+          open
+          result={result}
+          reason="threefold_repetition"
+          playerColor={color}
+          onClose={() => undefined}
+        />,
+      );
+      expect(screen.getByRole("dialog", { name: title })).toHaveTextContent(
+        "by threefold repetition",
+      );
+    },
+  );
 
   it("words a timeout as on time", () => {
-    render(<GameOverDialog gameId={7} open result="0-1" reason="timeout" playerColor="white" onClose={() => undefined} />);
+    render(
+      <GameOverDialog
+        gameId={7}
+        open
+        result="0-1"
+        reason="timeout"
+        playerColor="white"
+        onClose={() => undefined}
+      />,
+    );
     expect(screen.getByRole("dialog")).toHaveTextContent("0-1 on time");
   });
 
   it("links to the game's review", () => {
-    render(<GameOverDialog gameId={7} open result="1-0" playerColor="white" onClose={() => undefined} />);
-    expect(screen.getByRole("link", { name: "Review game" })).toHaveAttribute("href", "/review/7");
+    render(
+      <GameOverDialog
+        gameId={7}
+        open
+        result="1-0"
+        playerColor="white"
+        onClose={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("link", { name: "Review game" })).toHaveAttribute(
+      "href",
+      "/review/7",
+    );
   });
 
   it("omits the reason when unknown", () => {
-    render(<GameOverDialog gameId={7} open result="1-0" playerColor="white" onClose={() => undefined} />);
+    render(
+      <GameOverDialog
+        gameId={7}
+        open
+        result="1-0"
+        playerColor="white"
+        onClose={() => undefined}
+      />,
+    );
     expect(screen.getByRole("dialog")).not.toHaveTextContent(" by ");
   });
 });
@@ -780,6 +822,97 @@ describe("board helpers", () => {
         ).not.toBeInTheDocument(),
       );
       expect(lockIn).not.toHaveBeenCalled();
+    });
+
+    it("swaps the provisional template line for the final text under the same key", async () => {
+      const { api, stream } = fakeApi(active());
+      render(<PlayBoard gameId={1} api={api} />);
+      await screen.findByTestId("board");
+      const comment = {
+        ply: 1,
+        classification: "hint",
+        hint_level: 1,
+        phase: "opening" as const,
+        message_key: "k1",
+      };
+      act(() =>
+        stream()?.onCoachComment({
+          ...comment,
+          text: "Ask yourself what your opponent can do.",
+          provisional: true,
+        }),
+      );
+      const list = () => screen.getByRole("list", { name: "Coach messages" });
+      const draft = await within(list()).findByText(
+        "Ask yourself what your opponent can do.",
+      );
+      expect(draft.closest("li")).toHaveAttribute("data-provisional", "true");
+
+      act(() =>
+        stream()?.onCoachComment({
+          ...comment,
+          text: "Check what Nc6 guards.",
+        }),
+      );
+      await within(list()).findByText("Check what Nc6 guards.");
+      expect(
+        within(list()).queryByText("Ask yourself what your opponent can do."),
+      ).not.toBeInTheDocument();
+      expect(document.querySelectorAll("[data-kind='hint']")).toHaveLength(1);
+      expect(document.querySelector("[data-provisional]")).toBeNull();
+    });
+
+    it("drops an unconfirmed provisional hint when the player rethinks or locks in", async () => {
+      const { api, stream } = fakeApi(active());
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await screen.findByRole("button", { name: "Lock in" });
+      act(() =>
+        stream()?.onCoachComment({
+          ply: 1,
+          text: "Ask yourself what your opponent can do.",
+          classification: "hint",
+          hint_level: 1,
+          phase: "opening",
+          provisional: true,
+          message_key: "k1",
+        }),
+      );
+      await screen.findByTestId("proposal-hint");
+      await userEvent.click(screen.getByRole("button", { name: "Rethink" }));
+      await waitFor(() =>
+        expect(document.querySelector("[data-provisional]")).toBeNull(),
+      );
+      expect(
+        screen.queryByText("Ask yourself what your opponent can do."),
+      ).not.toBeInTheDocument();
+    });
+
+    it("removes the provisional line when the server retracts its key", async () => {
+      const { api, stream } = fakeApi(active());
+      render(<PlayBoard gameId={1} api={api} />);
+      await screen.findByTestId("board");
+      const comment = {
+        ply: 1,
+        classification: "hint",
+        hint_level: 1,
+        phase: "opening" as const,
+        provisional: true,
+        message_key: "k1",
+      };
+      act(() =>
+        stream()?.onCoachComment({ ...comment, text: "Think about the reply." }),
+      );
+      await waitFor(() =>
+        expect(document.querySelectorAll("[data-provisional]")).toHaveLength(1),
+      );
+      act(() =>
+        stream()?.onCoachComment({ ...comment, text: "", retracted: true }),
+      );
+      await waitFor(() =>
+        expect(document.querySelector("[data-provisional]")).toBeNull(),
+      );
+      expect(document.querySelectorAll("[data-kind]")).toHaveLength(0);
     });
 
     it("keeps two coach messages that differ only in hint level", async () => {

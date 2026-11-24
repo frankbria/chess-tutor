@@ -11,6 +11,8 @@ prompt builder drop it and every fact that contains it.
 import asyncio
 import json
 import logging
+import time
+from uuid import uuid4
 
 import chess
 from sqlalchemy import Engine, select
@@ -19,10 +21,11 @@ from sqlalchemy.orm import Session
 from chess_tutor.analysis.move_delta import MoveDelta, move_delta
 from chess_tutor.api.events import CoachCommentEvent, GameEvents
 from chess_tutor.api.settings import load_preferences
-from chess_tutor.coach.grounding import coach_reply_with_grounding
+from chess_tutor.coach.grounding import GroundedReply
+from chess_tutor.coach.latency import reply_with_instant_template
 from chess_tutor.coach.llm import LanguageModel, record_llm_cost
 from chess_tutor.coach.profile import build_coach_profile, stored_phrasings
-from chess_tutor.coach.prompt import RECENT_MESSAGES_SHOWN, CoachContext, CoachEvent
+from chess_tutor.coach.prompt import RECENT_MESSAGES_SHOWN, CoachContext, CoachEvent, CoachReply
 from chess_tutor.concepts.tagger import tag_mistake
 from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.facts.models import Fact, FactType
@@ -105,6 +108,7 @@ class HintCoach:
     ) -> None:
         if self._model is None or proposal.uci is None:
             return
+        started = time.monotonic()
         phase = detect_phase(board, self._settings.thresholds.phase)
         packet = build_fact_packet(board)
         fine = not delta.facts
@@ -139,40 +143,65 @@ class HintCoach:
             recent_coach_messages=self._recent_texts(game_id),
             verbosity=verbosity,
         )
-        reply = await coach_reply_with_grounding(self._model, context)
-        with Session(self._engine) as session:
-            record_llm_cost(session, game_id, reply.cost)
-        # Nothing awaits between this check and the publish, so a rethink or lock-in cannot slip in.
-        if not self._service.is_current_proposal(
-            proposal.id, proposal.ply, proposal.uci, proposal.rethinks
-        ):
-            return
-        with Session(self._engine) as session:
-            session.add(
-                CoachMessage(
-                    game_id=game_id,
-                    ply=proposal.ply,
-                    role=CoachRole.COACH,
-                    kind=CoachMessageKind.COMMENT if fine else CoachMessageKind.HINT,
-                    hint_level=level,
-                    text=reply.text,
-                    fact_ids=json.dumps(reply.fact_ids),
-                    source=CoachMessageSource(reply.source.value),
-                    concepts=json.dumps([concept.value for concept in concepts]),
-                )
-            )
-            session.commit()
-        self._events.publish(
-            game_id,
-            CoachCommentEvent(
+        message_key = uuid4().hex
+        classification = "remark" if fine else "hint"
+
+        proposed_uci = proposal.uci
+
+        def template_event(template: CoachReply) -> CoachCommentEvent:
+            return CoachCommentEvent(
                 ply=proposal.ply,
-                text=reply.text,
-                classification="remark" if fine else "hint",
+                text=template.text,
+                classification=classification,
                 phase=phase,
-                fact_ids=reply.fact_ids,
-                source=reply.source.value,
+                fact_ids=template.fact_ids,
+                source=CoachMessageSource.TEMPLATE.value,
                 hint_level=level,
-            ),
+                provisional=True,
+                message_key=message_key,
+            )
+
+        def settle(reply: GroundedReply) -> bool:
+            with Session(self._engine) as session:
+                record_llm_cost(session, game_id, reply.cost)
+            # Nothing awaits between this check and the publish, so a rethink or lock-in cannot
+            # slip in.
+            if not self._service.is_current_proposal(
+                proposal.id, proposal.ply, proposed_uci, proposal.rethinks
+            ):
+                return False
+            with Session(self._engine) as session:
+                session.add(
+                    CoachMessage(
+                        game_id=game_id,
+                        ply=proposal.ply,
+                        role=CoachRole.COACH,
+                        kind=CoachMessageKind.COMMENT if fine else CoachMessageKind.HINT,
+                        hint_level=level,
+                        text=reply.text,
+                        fact_ids=json.dumps(reply.fact_ids),
+                        source=CoachMessageSource(reply.source.value),
+                        concepts=json.dumps([concept.value for concept in concepts]),
+                    )
+                )
+                session.commit()
+            self._events.publish(
+                game_id,
+                CoachCommentEvent(
+                    ply=proposal.ply,
+                    text=reply.text,
+                    classification=classification,
+                    phase=phase,
+                    fact_ids=reply.fact_ids,
+                    source=reply.source.value,
+                    hint_level=level,
+                    message_key=message_key,
+                ),
+            )
+            return True
+
+        await reply_with_instant_template(
+            self._model, context, started, self._events, game_id, template_event, settle
         )
 
     def _remark_feature(self, game_id: int, facts: list[Fact]) -> Fact | None:
