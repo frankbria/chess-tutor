@@ -42,6 +42,7 @@ function concept(
     count,
     recency_score: recency,
     practice_themes: themes,
+    updated_at: "2026-11-20T00:00:00Z",
   };
 }
 

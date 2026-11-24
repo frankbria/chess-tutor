@@ -46,6 +46,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
+from chess_tutor.api.player import remember_choice
 from chess_tutor.coach.active import ActiveTutor
 from chess_tutor.coach.passive import PassiveCoach
 from chess_tutor.games.clock import ClockState
@@ -280,10 +281,12 @@ router = APIRouter(prefix="/games", tags=["games"])
 
 
 @router.post("", status_code=201)
-async def create_game(body: CreateGameRequest, service: Service) -> GameResponse:
+async def create_game(body: CreateGameRequest, service: Service, request: Request) -> GameResponse:
     game = await service.create_game(
         DEFAULT_PLAYER_ID, body.opponent_elo, body.color, body.mode, body.time_control
     )
+    with Session(request.app.state.engine) as session:
+        remember_choice(session, body.mode, body.color, game.opponent_elo)
     return describe(service, game)
 
 

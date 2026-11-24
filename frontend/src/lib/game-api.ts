@@ -68,7 +68,25 @@ export interface GameApi {
 export interface NewGame {
   mode: GameMode;
   color: ColorChoice;
+  /** Omitted: the server picks one from the player's rating (plus a stretch in tutor modes). */
+  opponent_elo?: number;
+}
+
+/** The player's previous new-game choice; each field is null until one has been made. */
+export interface LastChoice {
+  mode: GameMode | null;
+  color: ColorChoice | null;
+  opponent_elo: number | null;
+}
+
+export interface LastGame {
+  game_id: number;
+  mode: GameMode;
+  player_color: PlayerColor;
   opponent_elo: number;
+  result: GameResult | null;
+  accuracy: number | null;
+  summary: string | null;
 }
 
 export interface Player {
@@ -80,6 +98,9 @@ export interface LobbyApi {
   createGame(newGame: NewGame): Promise<GameState>;
   listActiveGames(): Promise<GameState[]>;
   getPlayer(): Promise<Player>;
+  getLastChoice(): Promise<LastChoice>;
+  /** Null until the player has finished a game. */
+  getLastGame(): Promise<LastGame | null>;
 }
 
 export class ApiError extends Error {
@@ -148,4 +169,6 @@ export const httpLobbyApi: LobbyApi = {
   createGame: (newGame) => request("/games", "POST", newGame),
   listActiveGames: () => request<GameState[]>("/games?status=active", "GET"),
   getPlayer: () => request<Player>("/player", "GET"),
+  getLastChoice: () => request<LastChoice>("/player/last-choice", "GET"),
+  getLastGame: () => request<LastGame | null>("/player/last-game", "GET"),
 };
