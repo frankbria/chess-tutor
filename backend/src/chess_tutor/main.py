@@ -14,6 +14,7 @@ from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
 from chess_tutor.api.settings import router as settings_router
 from chess_tutor.api.settings import stored_maia_model
+from chess_tutor.coach.active import ActiveTutor
 from chess_tutor.coach.llm import LanguageModel, create_language_model
 from chess_tutor.coach.passive import PassiveCoach
 from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
@@ -133,6 +134,7 @@ def create_app(
             engine, game_opponent, pacing, settings.thresholds, observer=passive_coach
         )
         app.state.passive_coach = passive_coach
+        app.state.active_tutor = ActiveTutor(app.state.game_service, pool)
         try:
             yield
         finally:
