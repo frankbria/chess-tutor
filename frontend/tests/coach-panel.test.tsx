@@ -50,6 +50,7 @@ function fakeApi(initial: GameState, history: CoachMessage[] = []) {
     proposeMove: async (_id, uci) => ({ uci, san: "e4", ply: 1, rethinks: 0 }),
     rethink: async () => ({ rethinks: 1 }),
     lockIn: async () => initial,
+    getPendingProposal: async () => null,
     subscribe: (_id, next) => {
       handlers = next;
       return () => undefined;

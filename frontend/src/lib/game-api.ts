@@ -80,6 +80,8 @@ export interface GameApi {
   takeback(id: number): Promise<GameState>;
   /** Active games only: shows a move without playing it. */
   proposeMove(id: number, uci: string): Promise<Proposal>;
+  /** Active games only: the proposal still awaiting Rethink or Lock in, e.g. after a reload. */
+  getPendingProposal(id: number): Promise<Proposal | null>;
   /** Active games only: discards the proposed move. */
   rethink(id: number): Promise<{ rethinks: number }>;
   /** Active games only: plays the proposed move; the opponent replies. */
@@ -149,6 +151,7 @@ export const httpGameApi: GameApi = {
   getCoachMessages: (id) => request<CoachMessage[]>(`/games/${id}/coach/messages`, "GET"),
   takeback: (id) => request(`/games/${id}/takeback`, "POST"),
   proposeMove: (id, uci) => request<Proposal>(`/games/${id}/moves`, "POST", { uci, propose: true }),
+  getPendingProposal: (id) => request<Proposal | null>(`/games/${id}/moves/proposal`, "GET"),
   rethink: (id) => request<{ rethinks: number }>(`/games/${id}/moves/rethink`, "POST"),
   lockIn: (id) => request(`/games/${id}/moves/lock`, "POST"),
   subscribe(id, handlers) {

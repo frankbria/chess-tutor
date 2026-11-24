@@ -47,6 +47,8 @@ describe("httpGameApi", () => {
   it("proposes, rethinks and locks in through the Active endpoints", async () => {
     await httpGameApi.proposeMove(9, "e2e4");
     expect(requests.at(-1)).toMatchObject({ method: "POST", url: "/games/9/moves", body: '{"uci":"e2e4","propose":true}' });
+    await httpGameApi.getPendingProposal(9);
+    expect(requests.at(-1)).toMatchObject({ method: "GET", url: "/games/9/moves/proposal" });
     await httpGameApi.rethink(9);
     expect(requests.at(-1)).toMatchObject({ method: "POST", url: "/games/9/moves/rethink" });
     await httpGameApi.lockIn(9);

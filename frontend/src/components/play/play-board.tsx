@@ -35,7 +35,8 @@ const sameMessage = (a: CoachMessage, b: CoachMessage) =>
   a.ply === b.ply &&
   a.role === b.role &&
   a.kind === b.kind &&
-  a.text === b.text;
+  a.text === b.text &&
+  a.hint_level === b.hint_level;
 
 /** The stream and the history fetch can overlap, so a message is only added once. */
 const withoutRepeats = (known: CoachMessage[], incoming: CoachMessage[]) =>
@@ -72,8 +73,12 @@ export function PlayBoard({
   const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([]);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [proposing, setProposing] = useState(false);
+  const [settling, setSettling] = useState(false);
+  // Messages before this index belong to proposals that were already rethought.
+  const [hintFloor, setHintFloor] = useState(0);
   const plyCount = useRef(0);
   const hasCoach = game !== null && game.mode !== "regular";
+  const isActive = game?.mode === "active";
 
   // The server is the source of truth; ignore anything older than what is already shown.
   const accept = useCallback((next: GameState) => {
@@ -147,6 +152,14 @@ export function PlayBoard({
     );
   }, [api, gameId, hasCoach]);
 
+  useEffect(() => {
+    if (!isActive) return;
+    api.getPendingProposal(gameId).then(
+      (pending) => pending && setProposal(pending),
+      (error: unknown) => setMessage(errorMessage(error)),
+    );
+  }, [api, gameId, isActive]);
+
   const proposeMove = async (uci: string) => {
     setMessage(null);
     setProposing(true);
@@ -162,17 +175,22 @@ export function PlayBoard({
 
   const rethink = async () => {
     setMessage(null);
+    setSettling(true);
     try {
       await api.rethink(gameId);
       setProposal(null);
+      setHintFloor(coachMessages.length);
       setSyncToken((token) => token + 1); // snap the pieces back to the pre-move position
     } catch (error) {
       setMessage(errorMessage(error));
+    } finally {
+      setSettling(false);
     }
   };
 
   const lockIn = async () => {
     setMessage(null);
+    setSettling(true);
     setThinking(true);
     try {
       accept(await api.lockIn(gameId));
@@ -182,6 +200,7 @@ export function PlayBoard({
     } finally {
       setProposal(null);
       setThinking(false);
+      setSettling(false);
     }
   };
 
@@ -251,7 +270,12 @@ export function PlayBoard({
   const proposalHint =
     proposal &&
     coachMessages.findLast(
-      (entry) => entry.kind === "hint" && entry.ply === proposal.ply,
+      (entry, index) =>
+        index >= hintFloor &&
+        entry.kind === "hint" &&
+        entry.ply === proposal.ply &&
+        (entry.hint_level == null ||
+          entry.hint_level === Math.min(proposal.rethinks + 1, 3)),
     );
   const handleMove = (from: string, to: string) => {
     if (isPromotion(game.legal_moves, from, to)) setPromotion({ from, to });
@@ -305,7 +329,7 @@ export function PlayBoard({
             <div className="grid grid-cols-2 gap-3">
               <Button
                 variant="outline"
-                disabled={thinking}
+                disabled={thinking || settling}
                 onClick={() => void rethink()}
                 className="min-h-14 text-base"
               >
@@ -313,7 +337,7 @@ export function PlayBoard({
                 Rethink
               </Button>
               <Button
-                disabled={thinking}
+                disabled={thinking || settling}
                 onClick={() => void lockIn()}
                 className="min-h-14 text-base"
               >
