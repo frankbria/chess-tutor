@@ -90,6 +90,7 @@ from chess_tutor.games.service import (
 from chess_tutor.models import (
     CoachMessage,
     CoachMessageKind,
+    CoachMessageSource,
     CoachRole,
     Game,
     GameMode,
@@ -421,6 +422,7 @@ class CoachMessageResponse(BaseModel):
     classification: str | None = Field(description="The move's label, null if it was not scored")
     phase: GamePhase = Field(description="The game phase of the position before the move")
     hint_level: int | None = Field(description="Active mode's hint rung (1 to 3), else null")
+    source: CoachMessageSource = Field(description="Whether the model or a template wrote it")
     created_at: datetime
 
 
@@ -455,6 +457,7 @@ def coach_messages(
             classification=classification,
             phase=detect_phase(chess.Board(fen_before) if fen_before else current, thresholds),
             hint_level=message.hint_level,
+            source=message.source,
             created_at=message.created_at,
         )
         for message, classification, fen_before in rows

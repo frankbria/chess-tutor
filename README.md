@@ -78,6 +78,8 @@ cd frontend
 npm install
 npm run dev          # http://localhost:3000
 npm test             # vitest + Testing Library
+npm run e2e          # Playwright flows against a real backend and frontend (needs Stockfish + Maia; coach in template mode)
+npm run e2e:llm      # the same flows with the real language model (opt-in, uses your credentials)
 npm run lint && npm run typecheck && npm run build
 ```
 
