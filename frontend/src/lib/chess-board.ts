@@ -1,6 +1,6 @@
 import { Chess } from "chess.js";
 
-import type { PlayerColor } from "@/lib/game-api";
+import type { GameState, PlayerColor } from "@/lib/game-api";
 
 export type Destinations = Map<string, string[]>;
 
@@ -53,4 +53,25 @@ export function positionAfter(moves: string[], ply: number) {
     inCheck: replay.isCheck(),
     lastMove: last ? ([last.from, last.to] as [string, string]) : undefined,
   };
+}
+
+/** The game as it will stand once the server accepts `uci`, shown before it answers. */
+export function gameAfterMove(game: GameState, uci: string): GameState | null {
+  const replay = new Chess(game.fen);
+  try {
+    const played = replay.move({
+      from: uci.slice(0, 2),
+      to: uci.slice(2, 4),
+      promotion: uci.slice(4) || undefined,
+    });
+    return {
+      ...game,
+      fen: replay.fen(),
+      moves: [...game.moves, played.san],
+      side_to_move: replay.turn() === "w" ? "white" : "black",
+      legal_moves: [],
+    };
+  } catch {
+    return null; // not legal on what is shown; the server's answer decides
+  }
 }

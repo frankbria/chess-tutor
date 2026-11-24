@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Chess } from "chess.js";
 import { describe, expect, it, vi } from "vitest";
 
 import { GameOverDialog } from "@/components/play/game-over-dialog";
@@ -32,12 +33,14 @@ vi.mock("@/components/play/chessboard", () => ({
     <div
       data-testid="board"
       data-orientation={props.orientation}
+      data-fen={props.fen}
       data-last-move={props.lastMove?.join("")}
       data-proposal={props.proposal?.join("")}
     >
       <span data-testid="locked">{props.destinations ? "open" : "locked"}</span>
       <button onClick={() => props.onMove("e2", "e4")}>drop e2e4</button>
       <button onClick={() => props.onMove("a7", "a8")}>drop a7a8</button>
+      <button onClick={() => props.onMove("c7", "d8")}>drop c7d8</button>
     </div>
   ),
 }));
@@ -135,6 +138,113 @@ describe("PlayBoard", () => {
     expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent("e5");
   });
 
+  describe("optimistic player move", () => {
+    const AFTER_E4_FEN =
+      "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1";
+
+    it("shows the player's move while the request is pending and the reply only after it resolves", async () => {
+      let finish: (state: GameState) => void = () => undefined;
+      const { api } = fakeApi(game(), {
+        playMove: () => new Promise((resolve) => (finish = resolve)),
+      });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      const board = screen.getByTestId("board");
+      expect(board).toHaveAttribute("data-fen", AFTER_E4_FEN);
+      expect(board).toHaveAttribute("data-last-move", "e2e4");
+      expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent(
+        "1.e4",
+      );
+      expect(screen.getByRole("list", { name: "Moves" })).not.toHaveTextContent(
+        "e5",
+      );
+      expect(screen.getByTestId("locked")).toHaveTextContent("locked");
+      expect(screen.getByText("Opponent is thinking…")).toBeInTheDocument();
+      finish(game({ moves: ["e4", "e5"] }));
+      await waitFor(() =>
+        expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent(
+          "1.e4e5",
+        ),
+      );
+      expect(screen.getByTestId("board")).toHaveAttribute(
+        "data-last-move",
+        "e7e5",
+      );
+    });
+
+    it("shows a promotion with the chosen piece before the reply", async () => {
+      const moves = ["a4", "b5", "axb5", "Nf6", "b6", "e6", "bxc7", "Bb4"];
+      const replay = new Chess();
+      for (const san of moves) replay.move(san);
+      const { api } = fakeApi(
+        game({
+          fen: replay.fen(),
+          moves,
+          legal_moves: ["c7d8q", "c7d8r", "c7d8b", "c7d8n"],
+        }),
+        { playMove: () => new Promise(() => undefined) },
+      );
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop c7d8"));
+      await userEvent.click(
+        await screen.findByRole("button", { name: /knight/i }),
+      );
+      replay.move("cxd8=N");
+      expect(screen.getByTestId("board")).toHaveAttribute(
+        "data-fen",
+        replay.fen(),
+      );
+      expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent(
+        "cxd8=N",
+      );
+    });
+
+    it("restores the server position when the request fails", async () => {
+      const { api } = fakeApi(game(), {
+        playMove: async () => {
+          throw new ApiError(409, "it is not your turn");
+        },
+      });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "it is not your turn",
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("board")).toHaveAttribute(
+          "data-fen",
+          START_FEN,
+        ),
+      );
+      expect(screen.getByText("No moves yet.")).toBeInTheDocument();
+      expect(screen.getByTestId("locked")).toHaveTextContent("open");
+    });
+
+    it("restores the pre-move position when the request and the resync both fail", async () => {
+      let loads = 0;
+      const { api } = fakeApi(game(), {
+        getGame: async () => {
+          if (loads++ === 0) return game();
+          throw new Error("network down");
+        },
+        playMove: async () => {
+          throw new Error("network down");
+        },
+      });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await waitFor(() => expect(loads).toBe(2));
+      await waitFor(() =>
+        expect(screen.getByTestId("board")).toHaveAttribute(
+          "data-fen",
+          START_FEN,
+        ),
+      );
+      expect(screen.getByText("No moves yet.")).toBeInTheDocument();
+      expect(screen.getByTestId("locked")).toHaveTextContent("open");
+    });
+  });
+
   it("sends a promotion move with the chosen piece", async () => {
     const playMove = vi.fn(async () => game());
     const { api } = fakeApi(game(), { playMove });
@@ -163,17 +273,28 @@ describe("PlayBoard", () => {
   });
 
   it("shows the server's message on a 409 and keeps the game state", async () => {
-    const { api } = fakeApi(game({ moves: ["d4"] }), {
-      playMove: async () => {
-        throw new ApiError(409, "it is not your turn");
+    const { api } = fakeApi(
+      game({
+        moves: ["a3", "a6"],
+        fen: "rnbqkbnr/1ppppppp/p7/8/8/P7/1PPPPPPP/RNBQKBNR w KQkq - 0 2",
+      }),
+      {
+        playMove: async () => {
+          throw new ApiError(409, "it is not your turn");
+        },
       },
-    });
+    );
     render(<PlayBoard gameId={1} api={api} />);
     await userEvent.click(await screen.findByText("drop e2e4"));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "it is not your turn",
     );
-    expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent("d4");
+    expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent(
+      "1.a3a6",
+    );
+    expect(screen.getByRole("list", { name: "Moves" })).not.toHaveTextContent(
+      "e4",
+    );
     expect(screen.getByTestId("locked")).toHaveTextContent("open");
   });
 
@@ -589,6 +710,84 @@ describe("board helpers", () => {
       ).not.toBeInTheDocument();
     });
 
+    it("shows the locked-in move while the request is pending and the reply only after it resolves", async () => {
+      let finish: (state: GameState) => void = () => undefined;
+      const { api } = fakeApi(active(), {
+        lockIn: () => new Promise((resolve) => (finish = resolve)),
+      });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Lock in" }),
+      );
+      const board = screen.getByTestId("board");
+      expect(board).toHaveAttribute(
+        "data-fen",
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+      );
+      expect(board).toHaveAttribute("data-last-move", "e2e4");
+      expect(board).not.toHaveAttribute("data-proposal");
+      expect(screen.getByRole("list", { name: "Moves" })).not.toHaveTextContent(
+        "e5",
+      );
+      expect(screen.getByText("Opponent is thinking…")).toBeInTheDocument();
+      finish(game({ mode: "active", moves: ["e4", "e5"] }));
+      await waitFor(() =>
+        expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent(
+          "1.e4e5",
+        ),
+      );
+    });
+
+    it("restores the server position when locking in fails", async () => {
+      const { api } = fakeApi(active(), {
+        lockIn: async () => {
+          throw new ApiError(409, "no move has been proposed");
+        },
+      });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Lock in" }),
+      );
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "no move has been proposed",
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("board")).toHaveAttribute(
+          "data-fen",
+          START_FEN,
+        ),
+      );
+      expect(screen.getByText("No moves yet.")).toBeInTheDocument();
+    });
+
+    it("restores the pre-move position when locking in and the resync both fail", async () => {
+      let loads = 0;
+      const { api } = fakeApi(active(), {
+        getGame: async () => {
+          if (loads++ === 0) return active();
+          throw new Error("network down");
+        },
+        lockIn: async () => {
+          throw new Error("network down");
+        },
+      });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Lock in" }),
+      );
+      await waitFor(() => expect(loads).toBe(2));
+      await waitFor(() =>
+        expect(screen.getByTestId("board")).toHaveAttribute(
+          "data-fen",
+          START_FEN,
+        ),
+      );
+      expect(screen.getByText("No moves yet.")).toBeInTheDocument();
+    });
+
     it("keeps Rethink and Lock in when locking in fails but the server still holds the proposal", async () => {
       const held = { uci: "e2e4", san: "e4", ply: 1, rethinks: 0 };
       const { api } = fakeApi(active(), {
@@ -911,7 +1110,10 @@ describe("board helpers", () => {
         message_key: "k1",
       };
       act(() =>
-        stream()?.onCoachComment({ ...comment, text: "Think about the reply." }),
+        stream()?.onCoachComment({
+          ...comment,
+          text: "Think about the reply.",
+        }),
       );
       await waitFor(() =>
         expect(document.querySelectorAll("[data-provisional]")).toHaveLength(1),
