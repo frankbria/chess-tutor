@@ -398,3 +398,23 @@ def test_taking_a_move_back_erases_its_stored_comment_and_concepts(settings: Set
             assert session.scalars(
                 select(Move.ply).where(Move.game_id == harness.game_id)
             ).all() == [*range(1, 7)]
+
+
+def test_a_different_move_reusing_the_row_id_does_not_inherit_the_stale_comment(
+    settings: Settings,
+) -> None:
+    model = GatedLanguageModel()
+    with started(settings, model) as harness:
+        game = f"/games/{harness.game_id}"
+        for uci in PLAYER_MOVES[:4]:
+            assert harness.api.post(f"{game}/moves", json={"uci": uci}).is_success
+        deadline = time.monotonic() + 30
+        while not model.waiting and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert harness.api.post(f"{game}/takeback").status_code == 200
+        harness.api.post(f"{game}/moves", json={"uci": "d2d3"})  # SQLite reuses the freed row id
+        assert harness.api.portal is not None
+        harness.api.portal.call(model.release)
+        harness.api.portal.call(harness.app.state.passive_coach.wait_until_idle)
+
+        assert harness.comments() == []

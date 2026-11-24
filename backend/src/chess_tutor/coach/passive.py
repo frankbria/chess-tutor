@@ -161,7 +161,7 @@ class PassiveCoach:
         phase = detect_phase(board, self._settings.thresholds.phase)
         concepts = tag_mistake(delta, phase, board) if classification in MISTAKES else []
         with Session(self._engine) as session:
-            if not self._still_played(session, stored.id):
+            if not self._still_played(session, stored):
                 return
             player_id = session.get_one(Game, game_id).player_id
             record_concepts(session, player_id, game_id, ply, concepts)
@@ -187,7 +187,7 @@ class PassiveCoach:
         )
         reply = await coach_reply_with_grounding(self._model, context)
         with Session(self._engine) as session:
-            if not self._still_played(session, stored.id):  # taken back while the LLM replied
+            if not self._still_played(session, stored):  # taken back while the LLM replied
                 return
             session.add(
                 CoachMessage(
@@ -214,9 +214,14 @@ class PassiveCoach:
             ),
         )
 
-    def _still_played(self, session: Session, move_id: int) -> bool:
-        """A taken-back move's row is deleted, so a late result for it must not be stored."""
-        return session.get(Move, move_id) is not None
+    def _still_played(self, session: Session, scored: Move) -> bool:
+        """A taken-back move's row is deleted, so a late result for it must not be stored.
+
+        SQLite reuses freed row ids, so the id alone is not enough: the row must still hold the
+        same move at the same ply.
+        """
+        current = session.get(Move, scored.id)
+        return current is not None and (current.ply, current.uci) == (scored.ply, scored.uci)
 
     def _due(self, game_id: int, ply: int) -> bool:
         """At most one comment per move, and one per `coach_comment_every_n_moves` player moves."""
