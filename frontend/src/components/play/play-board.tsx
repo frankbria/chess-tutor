@@ -1,6 +1,10 @@
 "use client";
 
-import { Loading03Icon, Undo02Icon } from "@hugeicons/core-free-icons";
+import {
+  LockIcon,
+  Loading03Icon,
+  Undo02Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -11,24 +15,53 @@ import { Chessboard } from "@/components/play/chessboard";
 import { GameOverDialog } from "@/components/play/game-over-dialog";
 import { MoveList } from "@/components/play/move-list";
 import { PromotionDialog } from "@/components/play/promotion-dialog";
-import { destinationsFrom, isInCheck, isPromotion, lastMoveSquares } from "@/lib/chess-board";
+import {
+  destinationsFrom,
+  isInCheck,
+  isPromotion,
+  lastMoveSquares,
+} from "@/lib/chess-board";
 import { cn } from "@/lib/utils";
-import { ApiError, httpGameApi, type CoachMessage, type GameApi, type GameState } from "@/lib/game-api";
+import {
+  ApiError,
+  httpGameApi,
+  type CoachMessage,
+  type GameApi,
+  type GameState,
+  type Proposal,
+} from "@/lib/game-api";
 
-const sameMessage = (a: CoachMessage, b: CoachMessage) => a.ply === b.ply && a.role === b.role && a.kind === b.kind && a.text === b.text;
+const sameMessage = (a: CoachMessage, b: CoachMessage) =>
+  a.ply === b.ply &&
+  a.role === b.role &&
+  a.kind === b.kind &&
+  a.text === b.text;
 
 /** The stream and the history fetch can overlap, so a message is only added once. */
 const withoutRepeats = (known: CoachMessage[], incoming: CoachMessage[]) =>
-  incoming.filter((message) => !known.some((existing) => sameMessage(existing, message)));
+  incoming.filter(
+    (message) => !known.some((existing) => sameMessage(existing, message)),
+  );
 
 const errorMessage = (error: unknown) =>
-  error instanceof ApiError ? error.message : "Could not reach the game server. Try again.";
+  error instanceof ApiError
+    ? error.message
+    : "Could not reach the game server. Try again.";
 
-export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?: GameApi }) {
+export function PlayBoard({
+  gameId,
+  api = httpGameApi,
+}: {
+  gameId: number;
+  api?: GameApi;
+}) {
   const [game, setGame] = useState<GameState | null>(null);
   const [thinking, setThinking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [promotion, setPromotion] = useState<{ from: string; to: string } | null>(null);
+  const [promotion, setPromotion] = useState<{
+    from: string;
+    to: string;
+  } | null>(null);
   const [gameOverReason, setGameOverReason] = useState<string>();
   const [dialogDismissed, setDialogDismissed] = useState(false);
   const [confirmingResign, setConfirmingResign] = useState(false);
@@ -37,6 +70,8 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [connectionLost, setConnectionLost] = useState(false);
   const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([]);
+  const [proposal, setProposal] = useState<Proposal | null>(null);
+  const [proposing, setProposing] = useState(false);
   const plyCount = useRef(0);
   const hasCoach = game !== null && game.mode !== "regular";
 
@@ -57,11 +92,29 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   }, [api, gameId, accept]);
 
   useEffect(() => {
-    api.getGame(gameId).then(accept, (error: unknown) => setLoadError(errorMessage(error)));
+    api
+      .getGame(gameId)
+      .then(accept, (error: unknown) => setLoadError(errorMessage(error)));
     return api.subscribe(gameId, {
-      onCoachComment: ({ ply, text, classification, phase }) => {
-        const comment: CoachMessage = { ply, role: "coach", kind: "comment", text, classification, phase };
-        setCoachMessages((known) => [...known, ...withoutRepeats(known, [comment])]);
+      onCoachComment: ({ ply, text, classification, phase, hint_level }) => {
+        // Active mode's hints and remarks are stored as hints, so show them as hints live too.
+        const kind =
+          classification === "hint" || classification === "remark"
+            ? "hint"
+            : "comment";
+        const comment: CoachMessage = {
+          ply,
+          role: "coach",
+          kind,
+          text,
+          classification,
+          phase,
+          hint_level,
+        };
+        setCoachMessages((known) => [
+          ...known,
+          ...withoutRepeats(known, [comment]),
+        ]);
       },
       onSnapshot: () => {
         setConnectionLost(false);
@@ -85,12 +138,55 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   useEffect(() => {
     if (!hasCoach) return;
     api.getCoachMessages(gameId).then(
-      (history) => setCoachMessages((known) => [...history, ...withoutRepeats(history, known)]),
+      (history) =>
+        setCoachMessages((known) => [
+          ...history,
+          ...withoutRepeats(history, known),
+        ]),
       (error: unknown) => setMessage(errorMessage(error)),
     );
   }, [api, gameId, hasCoach]);
 
+  const proposeMove = async (uci: string) => {
+    setMessage(null);
+    setProposing(true);
+    try {
+      setProposal(await api.proposeMove(gameId, uci));
+    } catch (error) {
+      setMessage(errorMessage(error));
+      await resync();
+    } finally {
+      setProposing(false);
+    }
+  };
+
+  const rethink = async () => {
+    setMessage(null);
+    try {
+      await api.rethink(gameId);
+      setProposal(null);
+      setSyncToken((token) => token + 1); // snap the pieces back to the pre-move position
+    } catch (error) {
+      setMessage(errorMessage(error));
+    }
+  };
+
+  const lockIn = async () => {
+    setMessage(null);
+    setThinking(true);
+    try {
+      accept(await api.lockIn(gameId));
+    } catch (error) {
+      setMessage(errorMessage(error));
+      await resync();
+    } finally {
+      setProposal(null);
+      setThinking(false);
+    }
+  };
+
   const submitMove = async (uci: string) => {
+    if (game?.mode === "active") return proposeMove(uci);
     setMessage(null);
     setThinking(true);
     try {
@@ -127,7 +223,10 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
 
   if (!game && loadError) {
     return (
-      <div role="alert" className="flex flex-col items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-destructive">
+      <div
+        role="alert"
+        className="flex flex-col items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-destructive"
+      >
         <p>{loadError}</p>
         <Button
           variant="outline"
@@ -143,7 +242,17 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   }
   if (!game) return <p role="status">Loading game…</p>;
 
-  const myTurn = game.status === "active" && game.side_to_move === game.player_color && !thinking;
+  const myTurn =
+    game.status === "active" &&
+    game.side_to_move === game.player_color &&
+    !thinking &&
+    !proposing &&
+    !proposal;
+  const proposalHint =
+    proposal &&
+    coachMessages.findLast(
+      (entry) => entry.kind === "hint" && entry.ply === proposal.ply,
+    );
   const handleMove = (from: string, to: string) => {
     if (isPromotion(game.legal_moves, from, to)) setPromotion({ from, to });
     else void submitMove(`${from}${to}`);
@@ -154,22 +263,78 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   };
 
   return (
-    <div className={cn("grid gap-4 md:grid-cols-[minmax(0,40rem)_minmax(16rem,1fr)]", hasCoach && "max-md:pb-16")}>
-      <Chessboard
-        fen={game.fen}
-        orientation={game.player_color}
-        turnColor={game.side_to_move}
-        inCheck={isInCheck(game.fen)}
-        lastMove={lastMoveSquares(game.moves)}
-        destinations={myTurn ? destinationsFrom(game.legal_moves) : undefined}
-        syncToken={syncToken}
-        onMove={handleMove}
-      />
+    <div
+      className={cn(
+        "grid gap-4 md:grid-cols-[minmax(0,40rem)_minmax(16rem,1fr)]",
+        hasCoach && "max-md:pb-16",
+      )}
+    >
+      <div className="flex flex-col gap-3">
+        <Chessboard
+          fen={game.fen}
+          orientation={game.player_color}
+          turnColor={game.side_to_move}
+          inCheck={isInCheck(game.fen)}
+          lastMove={lastMoveSquares(game.moves)}
+          destinations={myTurn ? destinationsFrom(game.legal_moves) : undefined}
+          syncToken={syncToken}
+          proposal={
+            proposal
+              ? [proposal.uci.slice(0, 2), proposal.uci.slice(2, 4)]
+              : undefined
+          }
+          onMove={handleMove}
+        />
+        {proposal && (
+          <section
+            aria-label="Proposed move"
+            className="flex flex-col gap-3 rounded-xl border-2 border-primary/40 bg-primary/5 p-3"
+          >
+            <p className="font-semibold">Proposed move: {proposal.san}</p>
+            {proposalHint && (
+              <p
+                data-testid="proposal-hint"
+                className="rounded-md bg-secondary p-2 text-sm"
+              >
+                {proposalHint.hint_level ? (
+                  <strong>Hint {proposalHint.hint_level}: </strong>
+                ) : null}
+                {proposalHint.text}
+              </p>
+            )}
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                variant="outline"
+                disabled={thinking}
+                onClick={() => void rethink()}
+                className="min-h-14 text-base"
+              >
+                <HugeiconsIcon icon={Undo02Icon} data-icon="inline-start" />
+                Rethink
+              </Button>
+              <Button
+                disabled={thinking}
+                onClick={() => void lockIn()}
+                className="min-h-14 text-base"
+              >
+                <HugeiconsIcon icon={LockIcon} data-icon="inline-start" />
+                Lock in
+              </Button>
+            </div>
+          </section>
+        )}
+      </div>
       <aside className="flex flex-col gap-4 rounded-xl border bg-card p-4">
-        <p role="status" className="flex min-h-6 items-center gap-2 font-medium text-primary">
+        <p
+          role="status"
+          className="flex min-h-6 items-center gap-2 font-medium text-primary"
+        >
           {thinking ? (
             <>
-              <HugeiconsIcon icon={Loading03Icon} className="size-4 animate-spin" />
+              <HugeiconsIcon
+                icon={Loading03Icon}
+                className="size-4 animate-spin"
+              />
               Opponent is thinking…
             </>
           ) : game.status === "finished" ? (
@@ -181,21 +346,37 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
         {game.clock && (
           <div className="flex flex-col gap-2">
             {(["opponent", "player"] as const).map((who) => {
-              const side = who === "player" ? game.player_color : game.player_color === "white" ? "black" : "white";
+              const side =
+                who === "player"
+                  ? game.player_color
+                  : game.player_color === "white"
+                    ? "black"
+                    : "white";
               return (
                 <ClockDisplay
                   key={who}
                   label={who === "player" ? "Your clock" : "Opponent clock"}
-                  remainingMs={side === "white" ? game.clock!.white_ms : game.clock!.black_ms}
+                  remainingMs={
+                    side === "white"
+                      ? game.clock!.white_ms
+                      : game.clock!.black_ms
+                  }
                   running={game.clock!.running === side}
                 />
               );
             })}
           </div>
         )}
-        {connectionLost && <p role="status" className="text-sm text-muted-foreground">Connection lost, reconnecting…</p>}
+        {connectionLost && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Connection lost, reconnecting…
+          </p>
+        )}
         {message && (
-          <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
+          <p
+            role="alert"
+            className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive"
+          >
             {message}
           </p>
         )}
@@ -214,18 +395,28 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
         {game.status === "active" &&
           (confirmingResign ? (
             <div className="flex gap-2">
-              <Button variant="destructive" onClick={() => void resign()}>Confirm resign</Button>
-              <Button variant="outline" onClick={() => setConfirmingResign(false)}>Keep playing</Button>
+              <Button variant="destructive" onClick={() => void resign()}>
+                Confirm resign
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setConfirmingResign(false)}
+              >
+                Keep playing
+              </Button>
             </div>
           ) : (
-            <Button variant="outline" onClick={() => setConfirmingResign(true)}>Resign</Button>
+            <Button variant="outline" onClick={() => setConfirmingResign(true)}>
+              Resign
+            </Button>
           ))}
       </aside>
       <PromotionDialog
         open={promotion !== null}
         onCancel={cancelPromotion}
         onChoose={(piece) => {
-          if (promotion) void submitMove(`${promotion.from}${promotion.to}${piece}`);
+          if (promotion)
+            void submitMove(`${promotion.from}${promotion.to}${piece}`);
           setPromotion(null);
         }}
       />
@@ -233,7 +424,9 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
         <GameOverDialog
           open={!dialogDismissed}
           result={game.result}
-          reason={gameOverReason ?? (game.ended_on_time ? "timeout" : undefined)}
+          reason={
+            gameOverReason ?? (game.ended_on_time ? "timeout" : undefined)
+          }
           playerColor={game.player_color}
           onClose={() => setDialogDismissed(true)}
         />

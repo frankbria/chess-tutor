@@ -20,13 +20,15 @@ export interface ChessboardProps {
   lastMove?: [string, string];
   /** Squares the player may move to, or undefined when the board is locked. */
   destinations?: Destinations;
+  /** An Active-mode move shown as an arrow without being played. */
+  proposal?: [string, string];
   /** Bump to snap the pieces back to `fen` after a rejected move. */
   syncToken: number;
   onMove: (from: string, to: string) => void;
 }
 
 /** Thin chessground wrapper; needs real layout, so it is exercised in the browser, not jsdom. */
-export function Chessboard({ fen, orientation, turnColor, inCheck, lastMove, destinations, syncToken, onMove }: ChessboardProps) {
+export function Chessboard({ fen, orientation, turnColor, inCheck, lastMove, destinations, proposal, syncToken, onMove }: ChessboardProps) {
   const container = useRef<HTMLDivElement>(null);
   const board = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
@@ -62,6 +64,10 @@ export function Chessboard({ fen, orientation, turnColor, inCheck, lastMove, des
       },
     });
   }, [fen, orientation, turnColor, inCheck, lastMove, destinations, syncToken]);
+
+  useEffect(() => {
+    board.current?.setAutoShapes(proposal ? [{ orig: proposal[0] as Key, dest: proposal[1] as Key, brush: "blue" }] : []);
+  }, [proposal]);
 
   return <div ref={container} className="aspect-square w-full" data-testid="chessboard" />;
 }

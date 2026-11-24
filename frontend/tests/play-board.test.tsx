@@ -15,9 +15,10 @@ vi.mock("@/components/play/chessboard", () => ({
     orientation: string;
     destinations?: Map<string, string[]>;
     lastMove?: [string, string];
+    proposal?: [string, string];
     onMove: (from: string, to: string) => void;
   }) => (
-    <div data-testid="board" data-orientation={props.orientation} data-last-move={props.lastMove?.join("")}>
+    <div data-testid="board" data-orientation={props.orientation} data-last-move={props.lastMove?.join("")} data-proposal={props.proposal?.join("")}>
       <span data-testid="locked">{props.destinations ? "open" : "locked"}</span>
       <button onClick={() => props.onMove("e2", "e4")}>drop e2e4</button>
       <button onClick={() => props.onMove("a7", "a8")}>drop a7a8</button>
@@ -54,6 +55,9 @@ function fakeApi(initial: GameState, overrides: Partial<GameApi> = {}) {
     resign: async () => ({ ...initial, status: "finished", result: "0-1" }),
     getCoachMessages: async () => [],
     takeback: async () => initial,
+    proposeMove: async (_id, uci) => ({ uci, san: "e4", ply: 1, rethinks: 0 }),
+    rethink: async () => ({ rethinks: 1 }),
+    lockIn: async () => initial,
     subscribe: (_id, next) => {
       handlers = next;
       return () => undefined;
@@ -319,5 +323,116 @@ describe("board helpers", () => {
 
   it("describes results from the player's side", () => {
     expect(describeResult("0-1", "black")).toBe("won");
+  });
+
+  describe("Active mode", () => {
+    const active = () => game({ mode: "active" });
+
+    it("proposes a board move instead of playing it and keeps the position where it was", async () => {
+      const playMove = vi.fn(async () => active());
+      const proposeMove = vi.fn(async (_id: number, uci: string) => ({ uci, san: "e4", ply: 1, rethinks: 0 }));
+      const { api } = fakeApi(active(), { playMove, proposeMove });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      expect(proposeMove).toHaveBeenCalledWith(1, "e2e4");
+      expect(playMove).not.toHaveBeenCalled();
+      expect(await screen.findByText("Proposed move: e4")).toBeInTheDocument();
+      expect(screen.getByTestId("board")).toHaveAttribute("data-proposal", "e2e4");
+      expect(screen.getByTestId("locked")).toHaveTextContent("locked");
+      expect(screen.getByText("No moves yet.")).toBeInTheDocument();
+    });
+
+    it("locks the board while a proposal is being fetched", async () => {
+      const { api } = fakeApi(active(), { proposeMove: () => new Promise(() => undefined) });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await waitFor(() => expect(screen.getByTestId("locked")).toHaveTextContent("locked"));
+    });
+
+    it("offers large Rethink and Lock in buttons by touch only while a move is proposed", async () => {
+      const { api } = fakeApi(active());
+      render(<PlayBoard gameId={1} api={api} />);
+      await screen.findByTestId("board");
+      expect(screen.queryByRole("button", { name: "Lock in" })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByText("drop e2e4"));
+      for (const name of ["Rethink", "Lock in"]) {
+        expect(await screen.findByRole("button", { name })).toHaveClass("min-h-14");
+      }
+    });
+
+    it("restores the pre-move position on Rethink and lets the player try again", async () => {
+      const rethink = vi.fn(async () => ({ rethinks: 1 }));
+      const { api } = fakeApi(active(), { rethink });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await userEvent.pointer([{ keys: "[TouchA>]", target: await screen.findByRole("button", { name: "Rethink" }) }, { keys: "[/TouchA]" }]);
+      expect(rethink).toHaveBeenCalledWith(1);
+      await waitFor(() => expect(screen.queryByText("Proposed move: e4")).not.toBeInTheDocument());
+      expect(screen.getByTestId("board")).not.toHaveAttribute("data-proposal");
+      expect(screen.getByTestId("locked")).toHaveTextContent("open");
+    });
+
+    it("commits the move on Lock in and shows the opponent's reply", async () => {
+      const lockIn = vi.fn(async () => game({ mode: "active", moves: ["e4", "e5"] }));
+      const { api } = fakeApi(active(), { lockIn });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await userEvent.click(await screen.findByRole("button", { name: "Lock in" }));
+      expect(lockIn).toHaveBeenCalledWith(1);
+      await waitFor(() => expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent("e5"));
+      expect(screen.queryByRole("button", { name: "Lock in" })).not.toBeInTheDocument();
+    });
+
+    it("shows the server's reason and clears the proposal when locking in fails", async () => {
+      const lockIn = async () => {
+        throw new ApiError(409, "no move has been proposed");
+      };
+      const { api } = fakeApi(active(), { lockIn });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await userEvent.click(await screen.findByRole("button", { name: "Lock in" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("no move has been proposed");
+      expect(screen.queryByRole("button", { name: "Lock in" })).not.toBeInTheDocument();
+    });
+
+    it("shows a failed proposal's reason without a proposal", async () => {
+      const proposeMove = async () => {
+        throw new ApiError(409, "it is not your turn");
+      };
+      const { api } = fakeApi(active(), { proposeMove });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      expect(await screen.findByRole("alert")).toHaveTextContent("it is not your turn");
+      expect(screen.queryByRole("button", { name: "Rethink" })).not.toBeInTheDocument();
+    });
+
+    it("shows the live hint inline with its level, as a hint rather than a comment", async () => {
+      const { api, stream } = fakeApi(active());
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await screen.findByRole("button", { name: "Lock in" });
+      act(() =>
+        stream()?.onCoachComment({ ply: 1, text: "Check what your knight guards.", classification: "hint", hint_level: 2, phase: "opening" }),
+      );
+      const inline = await screen.findByTestId("proposal-hint");
+      expect(inline).toHaveTextContent("Hint 2");
+      expect(inline).toHaveTextContent("Check what your knight guards.");
+      expect(document.querySelector("[data-kind='hint']")).toHaveTextContent("Hint 2");
+    });
+
+    it("shows a remark inline without a level and ignores hints for other plies", async () => {
+      const { api, stream } = fakeApi(active());
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await screen.findByRole("button", { name: "Lock in" });
+      act(() => {
+        stream()?.onCoachComment({ ply: 3, text: "Old news.", classification: "hint", hint_level: 1, phase: "opening" });
+        stream()?.onCoachComment({ ply: 1, text: "The centre is open.", classification: "remark", hint_level: null, phase: "opening" });
+      });
+      const inline = await screen.findByTestId("proposal-hint");
+      expect(inline).toHaveTextContent("The centre is open.");
+      expect(inline).not.toHaveTextContent("Old news.");
+      expect(inline).not.toHaveTextContent("Hint");
+    });
   });
 });

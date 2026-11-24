@@ -42,10 +42,27 @@ export interface CoachMessage {
   classification: string | null;
   /** The phase of the position before the move. */
   phase: GamePhase;
+  /** Active mode's hint ladder rung (1 to 3); only live hints carry it. */
+  hint_level?: number | null;
+}
+
+/** An Active-mode move that is shown but not yet played. */
+export interface Proposal {
+  uci: string;
+  san: string;
+  /** The ply the move would take. */
+  ply: number;
+  rethinks: number;
 }
 
 export interface GameStreamHandlers {
-  onCoachComment: (event: { ply: number; text: string; classification: string; phase: GamePhase }) => void;
+  onCoachComment: (event: {
+    ply: number;
+    text: string;
+    classification: string;
+    phase: GamePhase;
+    hint_level?: number | null;
+  }) => void;
   onSnapshot: (event: { fen: string; status: string }) => void;
   onOpponentMove: (event: { uci: string; san: string; fen: string; clock: ClockState | null }) => void;
   onGameOver: (event: { result: GameResult; reason: string }) => void;
@@ -61,6 +78,12 @@ export interface GameApi {
   getCoachMessages(id: number): Promise<CoachMessage[]>;
   /** Passive games only: undoes the player's last move and the opponent's reply. */
   takeback(id: number): Promise<GameState>;
+  /** Active games only: shows a move without playing it. */
+  proposeMove(id: number, uci: string): Promise<Proposal>;
+  /** Active games only: discards the proposed move. */
+  rethink(id: number): Promise<{ rethinks: number }>;
+  /** Active games only: plays the proposed move; the opponent replies. */
+  lockIn(id: number): Promise<GameState>;
   /** Returns the unsubscribe function. */
   subscribe(id: number, handlers: GameStreamHandlers): () => void;
 }
@@ -125,6 +148,9 @@ export const httpGameApi: GameApi = {
   resign: (id) => request(`/games/${id}/resign`, "POST"),
   getCoachMessages: (id) => request<CoachMessage[]>(`/games/${id}/coach/messages`, "GET"),
   takeback: (id) => request(`/games/${id}/takeback`, "POST"),
+  proposeMove: (id, uci) => request<Proposal>(`/games/${id}/moves`, "POST", { uci, propose: true }),
+  rethink: (id) => request<{ rethinks: number }>(`/games/${id}/moves/rethink`, "POST"),
+  lockIn: (id) => request(`/games/${id}/moves/lock`, "POST"),
   subscribe(id, handlers) {
     const source = new EventSource(`${API_BASE_URL}/games/${id}/coach/stream`);
     const listen = <T,>(name: string, handle: (event: T) => void) =>
