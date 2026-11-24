@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     coach_comment_every_n_moves: int = Field(
         default=1, ge=1
     )  # passive mode; 1 comments on every notable move
+    active_remark_every_n_proposals: int = Field(
+        default=5, ge=1
+    )  # active mode; at most one board-feature remark on a fine move per this many proposals
 
     thresholds: Thresholds = Thresholds()
 

@@ -261,6 +261,16 @@ class GameService:
             proposal.win_probability_after = win_probability_after
             session.commit()
 
+    def is_current_proposal(self, proposal_id: int, ply: int, uci: str, rethinks: int) -> bool:
+        """False once the proposal was rethought, locked in, or its game ended."""
+        with Session(self._engine) as session:
+            proposal = session.get(MoveProposal, proposal_id)
+            return proposal is not None and (proposal.ply, proposal.uci, proposal.rethinks) == (
+                ply,
+                uci,
+                rethinks,
+            )
+
     def withdraw_proposal(self, proposal_id: int, uci: str) -> None:
         """Back out a proposal whose analysis failed, keeping the rethink count."""
         with Session(self._engine) as session:
