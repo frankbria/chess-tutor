@@ -27,8 +27,12 @@ equal to the object's `type`:
   the coach asks "what were you thinking?" (`kind` "question", no LLM call, `classification` the
   move's label) in place of a comment on a Mistake, Blunder, Great or Brilliant move, at most once
   per `thought_question_every_n_moves` player moves and never while one is open.
-  `POST /games/{id}/coach/messages` `{text}` answers it (202; 409 if none is open): the coach's
-  grounded response follows as a `kind` "answer" event at the same ply.
+  `POST /games/{id}/coach/messages` `{text}` answers it (202): the coach's grounded response
+  follows as a `kind` "answer" event at the same ply. With no question open, the same call is the
+  player's own question (Passive and Active games only, 409 otherwise): the coach answers about
+  the current position as a `kind` "answer" event at the ply the next move would take, and the
+  question is stored as `kind` "asked". In Active mode the answer follows the hint ladder and never
+  names the best move.
   `POST /games/{id}/coach/question/skip` (204) closes it and the normal comment on that move
   follows as a `kind` "comment" event.
 
@@ -57,7 +61,11 @@ from sqlalchemy.orm import Session
 from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
 from chess_tutor.coach.active import ActiveTutor
 from chess_tutor.coach.passive import PassiveCoach
-from chess_tutor.coach.thought import NoPendingQuestionError
+from chess_tutor.coach.thought import (
+    CoachUnavailableError,
+    NoPendingQuestionError,
+    NoSuchPlyError,
+)
 from chess_tutor.games.clock import ClockState
 from chess_tutor.games.service import (
     ColorChoice,
@@ -107,6 +115,8 @@ ERROR_STATUS: tuple[tuple[type[GameError], int], ...] = (
     (ProposalPendingError, 409),
     (GameNotActiveError, 409),
     (NoPendingQuestionError, 409),
+    (NoSuchPlyError, 422),
+    (CoachUnavailableError, 503),
     (OpponentUnavailableError, 503),
 )
 
@@ -439,11 +449,11 @@ class AnswerRequest(BaseModel):
 
 
 @router.post("/{game_id}/coach/messages", status_code=202)
-async def answer_coach_question(
+async def message_the_coach(
     game_id: Annotated[int, Depends(existing_game_id)], body: AnswerRequest, coach: Coach
 ) -> None:
-    """Answer the coach's open question; its reply follows later as a `coach_comment` event."""
-    coach.answer_question(game_id, body.text)
+    """Answer the coach's open question, else ask it one; the reply follows as a `coach_comment`."""
+    coach.handle_message(game_id, body.text)
 
 
 @router.post("/{game_id}/coach/question/skip", status_code=204)

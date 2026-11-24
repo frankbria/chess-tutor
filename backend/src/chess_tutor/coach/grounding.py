@@ -271,7 +271,9 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
         for fact_id in reply.fact_ids
         if fact_id not in shown
     ]
-    if context.event is CoachEvent.ANSWER_QUESTION and shown and not reply.fact_ids:
+    # A level 1 nudge names nothing concrete, so it has no fact to cite.
+    needs_fact = context.event is CoachEvent.ANSWER_QUESTION and context.hint_level != 1
+    if needs_fact and shown and not reply.fact_ids:
         errors.append(
             _error(
                 GroundingErrorKind.NO_FACT_CITED,

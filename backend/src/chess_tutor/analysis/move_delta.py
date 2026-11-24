@@ -66,7 +66,7 @@ class MoveDelta:
     facts: list[Fact]  # ALLOWS and IGNORED_THREAT, citable like any other fact
 
 
-def _sans(board: chess.Board, moves: list[chess.Move]) -> list[str]:
+def san_line(board: chess.Board, moves: list[chess.Move]) -> list[str]:
     board = board.copy(stack=False)
     sans = []
     for move in moves:
@@ -161,7 +161,7 @@ def _allows_fact(
 ) -> Fact:
     reply = reply_line.pv[0]
     refs = _move_refs(board_after, reply)
-    line = _sans(board_after, reply_line.pv[:SHOWN_REPLY_PLIES])
+    line = san_line(board_after, reply_line.pv[:SHOWN_REPLY_PLIES])
     created = "; ".join(fact.summary for fact in allowed_facts)
     return Fact(
         id=f"allows:{reply.uci()}",
@@ -233,10 +233,10 @@ async def move_delta(board: chess.Board, move: chess.Move, pool: StockfishPool) 
         win_probability_before=win_before,
         win_probability_after=win_after,
         best_move=best_line[0] if best_line else None,
-        best_move_san=_sans(board, best_line[:1])[0] if best_line else None,
-        best_line=_sans(board, best_line),
+        best_move_san=san_line(board, best_line[:1])[0] if best_line else None,
+        best_line=san_line(board, best_line),
         reply=reply_line.pv[0] if reply_line else None,
-        reply_san=_sans(board_after, reply_line.pv[:1])[0] if reply_line else None,
+        reply_san=san_line(board_after, reply_line.pv[:1])[0] if reply_line else None,
         allowed_facts=allowed_facts,
         facts=facts,
     )

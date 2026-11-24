@@ -1,10 +1,18 @@
-"""`GET /games/{id}/review`: the post-game review of a finished game, best moves revealed."""
+"""`GET /games/{id}/review`: the post-game review of a finished game, best moves revealed.
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+`POST /games/{id}/review/questions` `{ply, text}` asks the coach about the position after `ply`
+(0 is the start), with the best moves revealed; the reply is stored and returned.
+"""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from chess_tutor.api.games import get_passive_coach
+from chess_tutor.coach.passive import PassiveCoach
 from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.models import ConceptSource, Game, GameStatus
 from chess_tutor.review.report import build_review
@@ -76,3 +84,31 @@ async def get_review(game_id: int, request: Request) -> ReviewResponse:
         engine, pool, game, request.app.state.settings.thresholds.classification
     )
     return ReviewResponse.model_validate(review, from_attributes=True)
+
+
+class ReviewQuestionRequest(BaseModel):
+    ply: int = Field(ge=0, description="The position after this ply; 0 is the start")
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+
+
+class ReviewAnswerResponse(BaseModel):
+    text: str
+    source: str = Field(description="`llm`, `llm_regenerated` or `template`")
+
+
+@router.post("/{game_id}/review/questions")
+async def ask_in_review(
+    game_id: int,
+    body: ReviewQuestionRequest,
+    request: Request,
+    coach: Annotated[PassiveCoach, Depends(get_passive_coach)],
+) -> ReviewAnswerResponse:
+    engine: Engine = request.app.state.engine
+    with Session(engine) as session:
+        game = session.get(Game, game_id)
+        if game is None:
+            raise HTTPException(404, f"game {game_id} does not exist")
+        if game.status is not GameStatus.FINISHED:
+            raise HTTPException(409, "review questions are available once the game is over")
+    reply = await coach.ask_about_position(game_id, body.ply, body.text)
+    return ReviewAnswerResponse(text=reply.text, source=reply.source.value)
