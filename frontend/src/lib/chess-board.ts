@@ -41,3 +41,16 @@ export function describeResult(result: string, playerColor: PlayerColor): "won" 
   if (result === "1/2-1/2") return "drawn";
   return (result === "1-0") === (playerColor === "white") ? "won" : "lost";
 }
+
+/** The position after the first `ply` moves, for stepping through a finished game. */
+export function positionAfter(moves: string[], ply: number) {
+  const replay = new Chess();
+  let last: { from: string; to: string } | undefined;
+  for (const san of moves.slice(0, ply)) last = replay.move(san);
+  return {
+    fen: replay.fen(),
+    turnColor: (replay.turn() === "w" ? "white" : "black") as PlayerColor,
+    inCheck: replay.isCheck(),
+    lastMove: last ? ([last.from, last.to] as [string, string]) : undefined,
+  };
+}

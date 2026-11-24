@@ -273,17 +273,22 @@ describe("GameOverDialog", () => {
     ["1-0", "black", "You lost"],
     ["1/2-1/2", "white", "Draw"],
   ] as const)("titles %s for %s as %s and shows the reason", (result, color, title) => {
-    render(<GameOverDialog open result={result} reason="threefold_repetition" playerColor={color} onClose={() => undefined} />);
+    render(<GameOverDialog gameId={7} open result={result} reason="threefold_repetition" playerColor={color} onClose={() => undefined} />);
     expect(screen.getByRole("dialog", { name: title })).toHaveTextContent("by threefold repetition");
   });
 
   it("words a timeout as on time", () => {
-    render(<GameOverDialog open result="0-1" reason="timeout" playerColor="white" onClose={() => undefined} />);
+    render(<GameOverDialog gameId={7} open result="0-1" reason="timeout" playerColor="white" onClose={() => undefined} />);
     expect(screen.getByRole("dialog")).toHaveTextContent("0-1 on time");
   });
 
+  it("links to the game's review", () => {
+    render(<GameOverDialog gameId={7} open result="1-0" playerColor="white" onClose={() => undefined} />);
+    expect(screen.getByRole("link", { name: "Review game" })).toHaveAttribute("href", "/review/7");
+  });
+
   it("omits the reason when unknown", () => {
-    render(<GameOverDialog open result="1-0" playerColor="white" onClose={() => undefined} />);
+    render(<GameOverDialog gameId={7} open result="1-0" playerColor="white" onClose={() => undefined} />);
     expect(screen.getByRole("dialog")).not.toHaveTextContent(" by ");
   });
 });

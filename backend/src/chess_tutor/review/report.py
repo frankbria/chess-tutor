@@ -64,9 +64,16 @@ class ConceptHit:
 
 
 @dataclass(frozen=True)
+class PlyWinProbability:
+    ply: int
+    win_probability: float  # the mover's, after the move
+
+
+@dataclass(frozen=True)
 class Review:
     accuracy: float | None
     performance_rating: float | None
+    win_probabilities: list[PlyWinProbability]
     key_moments: list[KeyMoment]
     reasoning: list[ReasoningExchange]
     summary: StoredSummary | None
@@ -134,7 +141,14 @@ async def build_review(engine: Engine, pool: StockfishPool, game: Game) -> Revie
     """`game` must be finished. Stored data is read first; only the key moments hit Stockfish."""
     parity = 1 if game.player_color is PlayerColor.WHITE else 0
     with Session(engine) as session:
-        moves = session.scalars(select(Move).where(Move.game_id == game.id).order_by(Move.ply))
+        moves = list(
+            session.scalars(select(Move).where(Move.game_id == game.id).order_by(Move.ply))
+        )
+        win_probabilities = [
+            PlyWinProbability(move.ply, move.eval_after)
+            for move in moves
+            if move.eval_after is not None
+        ]
         chosen = pick_key_moments([move for move in moves if move.ply % 2 == parity])
         for move in chosen:
             session.expunge(move)
@@ -168,4 +182,12 @@ async def build_review(engine: Engine, pool: StockfishPool, game: Game) -> Revie
             )
         )
     key_moments = list(await asyncio.gather(*(_reveal(move, pool) for move in chosen)))
-    return Review(game.accuracy, game.performance_rating, key_moments, reasoning, summary, concepts)
+    return Review(
+        game.accuracy,
+        game.performance_rating,
+        win_probabilities,
+        key_moments,
+        reasoning,
+        summary,
+        concepts,
+    )

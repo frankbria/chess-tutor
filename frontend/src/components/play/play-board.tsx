@@ -231,6 +231,7 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
       />
       {game.status === "finished" && game.result && (
         <GameOverDialog
+          gameId={gameId}
           open={!dialogDismissed}
           result={game.result}
           reason={gameOverReason ?? (game.ended_on_time ? "timeout" : undefined)}

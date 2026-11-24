@@ -91,7 +91,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T = GameState>(path: string, method: "GET" | "POST", body?: object): Promise<T> {
+export async function request<T = GameState>(path: string, method: "GET" | "POST", body?: object): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     cache: "no-store",
