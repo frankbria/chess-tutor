@@ -104,6 +104,7 @@ from chess_tutor.models import (
     TimeControl,
 )
 from chess_tutor.openings.phase import GamePhase, detect_phase
+from chess_tutor.openings.tracking import track_opening
 
 logger = logging.getLogger(__name__)
 
@@ -211,6 +212,19 @@ class RethinkResponse(BaseModel):
     rethinks: int = Field(description="Proposals discarded so far for this move")
 
 
+class OpeningStepResponse(BaseModel):
+    ply: int
+    in_book: bool = Field(description="False from the book exit on, even after a transposition")
+    eco: str | None
+    opening: str | None = Field(description="The deepest named opening so far, without variation")
+    variation: str | None
+
+
+class BookExitResponse(BaseModel):
+    ply: int = Field(description="The first ply whose position is on no book line")
+    side: PlayerColor = Field(description="Who played it; compare with `player_color`")
+
+
 class GameResponse(BaseModel):
     id: int
     mode: GameMode
@@ -229,12 +243,15 @@ class GameResponse(BaseModel):
     time_control: TimeControl | None
     clock: ClockState | None
     ended_on_time: bool
+    opening_line: list[OpeningStepResponse] = Field(description="One entry per ply, in play order")
+    book_exit: BookExitResponse | None = Field(description="Null while the game is in book")
 
 
 def describe(service: GameService, game: Game) -> GameResponse:
     board = service.get_board(game.id)
     replay = chess.Board()
     moves = [replay.san_and_push(move) for move in board.move_stack]
+    opening = track_opening(board.move_stack)
     return GameResponse(
         id=game.id,
         mode=game.mode,
@@ -253,6 +270,14 @@ def describe(service: GameService, game: Game) -> GameResponse:
         time_control=game.time_control,
         clock=service.clock_state(game, board.turn),
         ended_on_time=game.ended_on_time,
+        opening_line=[
+            OpeningStepResponse.model_validate(step, from_attributes=True) for step in opening.line
+        ],
+        book_exit=(
+            BookExitResponse.model_validate(opening.book_exit, from_attributes=True)
+            if opening.book_exit
+            else None
+        ),
     )
 
 

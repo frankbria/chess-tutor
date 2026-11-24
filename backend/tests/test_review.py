@@ -92,6 +92,19 @@ def test_a_black_player_gets_their_own_blunder_and_its_best_move(settings: Setti
     assert moment["best_move_uci"] != "d8h4"
 
 
+def test_the_review_carries_the_openings_and_the_game_response_agrees(settings: Settings) -> None:
+    app = create_app(settings, ScriptedOpponent(*OPPONENT_REPLIES), None)
+    with TestClient(app) as api:
+        game_id = play_game(app, api)
+        review = api.get(f"/games/{game_id}/review").json()
+        game = api.get(f"/games/{game_id}").json()
+
+    assert len(review["opening_line"]) == 8
+    assert review["opening_line"][0]["eco"] == "B00"
+    assert review["opening_line"] == game["opening_line"]
+    assert review["book_exit"] == game["book_exit"]
+
+
 def test_an_unknown_game_is_a_404(settings: Settings) -> None:
     with TestClient(create_app(settings, ScriptedOpponent(*OPPONENT_REPLIES), None)) as api:
         assert api.get("/games/999/review").status_code == 404

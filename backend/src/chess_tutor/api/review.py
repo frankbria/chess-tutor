@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from chess_tutor.api.games import get_passive_coach
+from chess_tutor.api.games import BookExitResponse, OpeningStepResponse, get_passive_coach
 from chess_tutor.coach.passive import PassiveCoach
 from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.models import ConceptSource, Game, GameStatus
@@ -65,6 +65,8 @@ class ReviewResponse(BaseModel):
     reasoning: list[ReasoningResponse]
     summary: SummaryResponse | None = Field(description="Null when no summary was stored")
     concepts: list[ConceptHitResponse]
+    opening_line: list[OpeningStepResponse]
+    book_exit: BookExitResponse | None
 
 
 @router.get("/{game_id}/review")
