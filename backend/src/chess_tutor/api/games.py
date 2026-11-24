@@ -22,6 +22,12 @@ equal to the object's `type`:
   seconds), so the comment comes first; past that cap it is only stored. `source` is `llm`,
   `llm_regenerated` or `template`.
 
+- `coach_comment` (Active mode, when the coach is on) also carries `hint_level`: after a proposal,
+  1 (nudge), 2 (pointer) or 3 (consequence) by the rethink count, never naming the best move, with
+  `classification` "hint"; a fine move is silent apart from an occasional board-feature remark
+  (`classification` "remark", `hint_level` null). `ply` is the ply the proposed move would take. The
+  hint is dropped if the move was rethought or locked in before it was ready.
+
 Events are published after the service call that caused them, so subscribe before moving.
 """
 
