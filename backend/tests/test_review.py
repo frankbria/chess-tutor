@@ -64,6 +64,31 @@ def test_a_game_without_a_stored_summary_still_has_a_review(settings: Settings) 
     assert body["summary"] is None and body["key_moments"]
 
 
+def test_a_black_player_gets_their_own_blunder_and_its_best_move(settings: Settings) -> None:
+    app = create_app(settings, ScriptedOpponent("e4", "Nf3", "Bc4", "Nxh4"), None)
+    with TestClient(app) as api:
+        game_id = api.post(
+            "/games", json={"mode": "passive", "color": "black", "opponent_elo": 1200}
+        ).json()["id"]
+        for uci in ("e7e5", "b8c6", "d8h4"):  # the last hangs the queen to Nf3
+            assert api.post(f"/games/{game_id}/moves", json={"uci": uci}).status_code == 200
+        assert api.portal is not None
+        api.portal.call(app.state.passive_coach.wait_until_idle)
+        api.post(f"/games/{game_id}/resign")
+        api.portal.call(app.state.passive_coach.wait_until_idle)
+        body = api.get(f"/games/{game_id}/review").json()
+        with Session(app.state.engine) as session:
+            fen_before = session.query(Move).filter_by(game_id=game_id, ply=6).one().fen_before
+        pool: StockfishPool = app.state.stockfish_pool
+        top_lines = api.portal.call(pool.analyse, chess.Board(fen_before), Budget.DEEP, 3)
+
+    [moment] = body["key_moments"]
+    assert (moment["ply"], moment["san"], moment["classification"]) == (6, "Qh4", "blunder")
+    # A quiet position has near-equal best moves, so any of the engine's top three will do.
+    assert moment["best_move_uci"] in {line.pv[0].uci() for line in top_lines}
+    assert moment["best_move_uci"] != "d8h4"
+
+
 def test_an_unknown_game_is_a_404(settings: Settings) -> None:
     with TestClient(create_app(settings, ScriptedOpponent(*OPPONENT_REPLIES), None)) as api:
         assert api.get("/games/999/review").status_code == 404
