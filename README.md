@@ -66,6 +66,7 @@ uv run uvicorn chess_tutor.main:create_app --factory --reload   # http://127.0.0
 uv run pytest                                                   # fast suite + coverage (fails under 85%)
 uv run pytest -m slow --no-cov                                  # minutes-long real-engine simulations (nightly in CI)
 uv run pytest -m llm --no-cov                                   # real Anthropic API tests (need credentials)
+uv run pytest -m eval --no-cov                                  # coaching eval set against the real model (docs/coaching-eval.md)
 uv run ruff check && uv run black --check . && uv run mypy src tests
 ```
 

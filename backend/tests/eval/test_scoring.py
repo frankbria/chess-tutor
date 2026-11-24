@@ -91,8 +91,16 @@ def test_the_squares_of_the_students_own_move_are_always_fair_to_name() -> None:
 
     assert "too_many_squares_in_level_2" not in forbidden_claims(reply, context(hint_level=2), [])
     assert forbidden_claims("Moving to f2.", context(hint_level=2), []) == []
-    assert "unknown_square:e1" not in forbidden_claims("The king leaves e1.", context(), [])
-    assert "unknown_square:e2" in forbidden_claims("The king leaves e2.", context(), [])
+    queen_leaves = context(pre_lock_in=False).model_copy(
+        update={
+            "move_san": "Qg4",
+            "fact_packet": build_fact_packet(
+                chess.Board("3qk2r/pp3ppp/8/8/1n6/8/PP3PPP/R2QK1N1 w - - 0 1")
+            ),
+        }
+    )
+    assert forbidden_claims("Your queen leaves d1 for g4.", queen_leaves, []) == []
+    assert "unknown_square:d2" in forbidden_claims("Your queen skips d2.", queen_leaves, [])
 
 
 @pytest.mark.parametrize(
