@@ -72,5 +72,7 @@ async def get_review(game_id: int, request: Request) -> ReviewResponse:
         session.expunge(game)
     if game.status is not GameStatus.FINISHED:
         raise HTTPException(409, "the review is available once the game is over")
-    review = await build_review(engine, pool, game)
+    review = await build_review(
+        engine, pool, game, request.app.state.settings.thresholds.classification
+    )
     return ReviewResponse.model_validate(review, from_attributes=True)

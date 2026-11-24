@@ -8,6 +8,7 @@ import chess
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
+from chess_tutor.analysis.recording import classify_stored_move
 from chess_tutor.engines.stockfish import Budget, StockfishPool
 from chess_tutor.models import (
     CoachMessage,
@@ -20,6 +21,7 @@ from chess_tutor.models import (
     Move,
     PlayerColor,
 )
+from chess_tutor.settings import ClassificationThresholds
 
 MAX_SWINGS = 4
 MAX_HIGHLIGHTS = 2  # swings + highlights bound the deep analyses a review costs
@@ -137,9 +139,33 @@ def _reasoning(messages: list[CoachMessage]) -> list[ReasoningExchange]:
     return exchanges
 
 
-async def build_review(engine: Engine, pool: StockfishPool, game: Game) -> Review:
+async def _score_unscored_moves(
+    engine: Engine,
+    pool: StockfishPool,
+    game: Game,
+    parity: int,
+    thresholds: ClassificationThresholds,
+) -> None:
+    """Regular and Active games are not scored live; score them once, then reviews are instant."""
+    with Session(engine) as session:
+        unscored = session.scalars(
+            select(Move.ply).where(Move.game_id == game.id, Move.classification.is_(None))
+        ).all()
+    await asyncio.gather(
+        *(
+            classify_stored_move(engine, pool, game.id, ply, thresholds)
+            for ply in unscored
+            if ply % 2 == parity
+        )
+    )
+
+
+async def build_review(
+    engine: Engine, pool: StockfishPool, game: Game, thresholds: ClassificationThresholds
+) -> Review:
     """`game` must be finished. Stored data is read first; only the key moments hit Stockfish."""
     parity = 1 if game.player_color is PlayerColor.WHITE else 0
+    await _score_unscored_moves(engine, pool, game, parity, thresholds)
     with Session(engine) as session:
         moves = list(
             session.scalars(select(Move).where(Move.game_id == game.id).order_by(Move.ply))

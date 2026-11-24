@@ -179,8 +179,8 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
               {moment.win_probability_before !== null && moment.win_probability_after !== null && (
                 <span className="text-muted-foreground">
                   {" "}
-                  (your chances went from {Math.round(moment.win_probability_before * 100)}% to{" "}
-                  {Math.round(moment.win_probability_after * 100)}%)
+                  (your chances went from {Math.round(moment.win_probability_before)}% to{" "}
+                  {Math.round(moment.win_probability_after)}%)
                 </span>
               )}
             </p>

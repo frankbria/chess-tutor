@@ -41,9 +41,9 @@ const review: Review = {
   accuracy: 71.2,
   performance_rating: 1043,
   win_probabilities: [
-    { ply: 1, win_probability: 0.5 },
-    { ply: 3, win_probability: 0.55 },
-    { ply: 5, win_probability: 0.2 },
+    { ply: 1, win_probability: 50 },
+    { ply: 3, win_probability: 55 },
+    { ply: 5, win_probability: 20 },
   ],
   key_moments: [
     {
@@ -53,8 +53,8 @@ const review: Review = {
       uci: "f1c4",
       fen_before: "",
       classification: "blunder",
-      win_probability_before: 0.55,
-      win_probability_after: 0.2,
+      win_probability_before: 52.48,
+      win_probability_after: 13.65,
       best_move_uci: "d2d4",
       best_move_san: "d4",
     },
@@ -139,6 +139,7 @@ describe("ReviewView", () => {
     expect(plyOf()).toBe("5");
     expect(fenOf()).toBe(positionAfter(MOVES, 5).fen);
     expect(screen.getByText(/Best was d4/)).toBeInTheDocument();
+    expect(screen.getByText(/from 52% to 14%/)).toBeInTheDocument();
     expect(screen.getByText("That bishop move walked into a fork.")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Blunder");
   });

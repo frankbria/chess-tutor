@@ -22,9 +22,11 @@ from chess_tutor.review.report import MAX_HIGHLIGHTS, MAX_SWINGS, pick_key_momen
 from chess_tutor.settings import Settings
 
 
-def play_game(app: FastAPI, api: TestClient, moves: int = 4, finish: bool = True) -> int:
+def play_game(
+    app: FastAPI, api: TestClient, moves: int = 4, finish: bool = True, mode: str = "passive"
+) -> int:
     game_id: int = api.post(
-        "/games", json={"mode": "passive", "color": "white", "opponent_elo": 1200}
+        "/games", json={"mode": mode, "color": "white", "opponent_elo": 1200}
     ).json()["id"]
     for uci in PLAYER_MOVES[:moves]:
         assert api.post(f"/games/{game_id}/moves", json={"uci": uci}).status_code == 200
@@ -132,6 +134,29 @@ def test_the_review_carries_the_players_win_probability_after_each_scored_move(
 
     series = [(point["ply"], point["win_probability"]) for point in body["win_probabilities"]]
     assert series == scored and len(series) == 4
+
+
+def test_a_regular_game_is_scored_on_first_review_and_the_scores_are_kept(
+    settings: Settings,
+) -> None:
+    app = create_app(settings, ScriptedOpponent(*OPPONENT_REPLIES), None)
+    with TestClient(app) as api:
+        game_id = play_game(app, api, mode="regular")
+        with Session(app.state.engine) as session:
+            assert session.query(Move).filter(Move.eval_after.is_not(None)).count() == 0
+        body = api.get(f"/games/{game_id}/review").json()
+        with Session(app.state.engine) as session:
+            stored = [
+                (move.ply, move.eval_after)
+                for move in session.query(Move).filter_by(game_id=game_id).order_by(Move.ply)
+                if move.eval_after is not None
+            ]
+        again = api.get(f"/games/{game_id}/review").json()
+
+    assert [point["ply"] for point in body["win_probabilities"]] == [1, 3, 5, 7]
+    assert [m["ply"] for m in body["key_moments"]] == [7]
+    assert stored == [(p["ply"], p["win_probability"]) for p in body["win_probabilities"]]
+    assert again["win_probabilities"] == body["win_probabilities"]
 
 
 def test_the_stored_summary_reasoning_and_concepts_are_returned(settings: Settings) -> None:
