@@ -194,11 +194,13 @@ export function PlayBoard({
     setThinking(true);
     try {
       accept(await api.lockIn(gameId));
+      setProposal(null);
     } catch (error) {
       setMessage(errorMessage(error));
       await resync();
+      // The server may still hold the proposal; keep the recovery controls only if it does.
+      setProposal(await api.getPendingProposal(gameId).catch(() => proposal));
     } finally {
-      setProposal(null);
       setThinking(false);
       setSettling(false);
     }

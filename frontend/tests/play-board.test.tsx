@@ -558,6 +558,24 @@ describe("board helpers", () => {
       ).not.toBeInTheDocument();
     });
 
+    it("keeps Rethink and Lock in when locking in fails but the server still holds the proposal", async () => {
+      const held = { uci: "e2e4", san: "e4", ply: 1, rethinks: 0 };
+      const { api } = fakeApi(active(), {
+        lockIn: async () => {
+          throw new TypeError("network down");
+        },
+        getPendingProposal: async () => held,
+      });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Lock in" }),
+      );
+      expect(await screen.findByRole("alert")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Lock in" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Rethink" })).toBeEnabled();
+    });
+
     it("shows the server's reason and clears the proposal when locking in fails", async () => {
       const lockIn = async () => {
         throw new ApiError(409, "no move has been proposed");
