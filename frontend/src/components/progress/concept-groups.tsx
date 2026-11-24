@@ -40,7 +40,7 @@ const GROUPS: {
 // recency_score gains 1 per occurrence and decays by 0.8 per game, so above 1 means seen again lately.
 const RECENT_SCORE = 1.5;
 
-function themeLabel(theme: string): string {
+export function themeLabel(theme: string): string {
   const spaced = theme.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }

@@ -1,6 +1,9 @@
 import { Chess01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
+import { ConceptHighlights } from "@/components/home/concept-highlights";
+import { LastGameCard } from "@/components/home/last-game-card";
+import { PlayButton } from "@/components/home/play-button";
 import { NewGameDialog } from "@/components/lobby/new-game-dialog";
 import { ResumeList } from "@/components/lobby/resume-list";
 
@@ -14,8 +17,11 @@ export default function HomePage() {
       <p className="max-w-sm text-muted-foreground">
         Play at your level with a coach that notices what you miss.
       </p>
+      <PlayButton />
       <NewGameDialog />
       <ResumeList />
+      <LastGameCard />
+      <ConceptHighlights />
     </section>
   );
 }

@@ -85,8 +85,8 @@ export function NewGameDialog() {
 
   return (
     <>
-      <Button size="lg" className="w-full max-w-xs" onClick={openDialog}>
-        Play
+      <Button variant="link" onClick={openDialog}>
+        Options
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90dvh] overflow-y-auto">
