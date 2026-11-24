@@ -515,7 +515,11 @@ export function PlayBoard({
         {game.status === "active" && game.mode === "passive" && (
           <Button
             variant="outline"
-            disabled={thinking || game.moves.length === 0}
+            // Black has nothing to take back until after the opponent's first move and their own reply.
+            disabled={
+              thinking ||
+              game.moves.length < (game.player_color === "white" ? 1 : 2)
+            }
             onClick={() => void takeBack()}
           >
             <HugeiconsIcon icon={Undo02Icon} data-icon="inline-start" />
