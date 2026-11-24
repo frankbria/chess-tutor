@@ -5,18 +5,16 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent } from "react";
 
 import { Chessboard } from "@/components/play/chessboard";
+import { OpeningLabel } from "@/components/play/opening-label";
 import { ClassificationBadge, CLASSIFICATION_STYLE } from "@/components/play/classification-badge";
 import { EvalGraph } from "@/components/review/eval-graph";
 import { Button } from "@/components/ui/button";
-import { positionAfter } from "@/lib/chess-board";
+import { moveLabel, positionAfter } from "@/lib/chess-board";
 import { ApiError, type CoachMessage, type GameState } from "@/lib/game-api";
 import { httpReviewApi, type Review, type ReviewApi } from "@/lib/review-api";
 import { cn } from "@/lib/utils";
 
 const SWIPE_DISTANCE_PX = 50;
-
-const moveLabel = (ply: number, san: string) =>
-  ply % 2 === 1 ? `${Math.ceil(ply / 2)}. ${san}` : `${Math.ceil(ply / 2)}... ${san}`;
 
 // The post-game summary is written in the background; poll for it briefly, then give up.
 const SUMMARY_RETRY_DELAYS_MS = [2000, 4000, 8000];
@@ -146,11 +144,22 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
           </Button>
           <p className="font-mono text-sm" aria-live="polite">
             {ply === 0 ? "Start position" : moveLabel(ply, game.moves[ply - 1])}
+            {ply === review.book_exit?.ply && (
+              <span className="ml-2 rounded-sm bg-muted px-1.5 py-0.5 font-sans text-xs text-muted-foreground">
+                Out of book
+              </span>
+            )}
           </p>
           <Button variant="outline" size="icon" aria-label="Next move" disabled={ply === totalPlies} onClick={() => step(1)}>
             <HugeiconsIcon icon={ArrowRight01Icon} />
           </Button>
         </div>
+        <OpeningLabel
+          step={review.opening_line[ply - 1]}
+          bookExit={review.book_exit}
+          moves={game.moves}
+          playerColor={game.player_color}
+        />
         <p className="text-xs text-muted-foreground">Use the arrow keys, Home and End, or swipe the board.</p>
       </div>
 

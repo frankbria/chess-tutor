@@ -54,3 +54,7 @@ export function positionAfter(moves: string[], ply: number) {
     lastMove: last ? ([last.from, last.to] as [string, string]) : undefined,
   };
 }
+
+/** "3. Bc4" for White's ply, "3... Nf6" for Black's. */
+export const moveLabel = (ply: number, san: string) =>
+  ply % 2 === 1 ? `${Math.ceil(ply / 2)}. ${san}` : `${Math.ceil(ply / 2)}... ${san}`;

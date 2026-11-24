@@ -1,4 +1,4 @@
-import { httpGameApi, request, type GameApi } from "@/lib/game-api";
+import { httpGameApi, request, type BookExit, type GameApi, type OpeningStep } from "@/lib/game-api";
 
 export interface KeyMoment {
   ply: number;
@@ -22,6 +22,8 @@ export interface Review {
   reasoning: { ply: number; answer: string; coach_reply: string | null }[];
   summary: { summary: string; key_moments: string[]; concepts: string[]; source: string } | null;
   concepts: { ply: number; concept: string; source: string }[];
+  opening_line: OpeningStep[];
+  book_exit: BookExit | null;
 }
 
 /** What the review screen needs from the backend; tests supply their own implementation. */

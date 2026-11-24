@@ -43,6 +43,8 @@ function game(overrides: Partial<GameState> = {}): GameState {
     time_control: null,
     clock: null,
     ended_on_time: false,
+    opening_line: [],
+    book_exit: null,
     ...overrides,
   };
 }
