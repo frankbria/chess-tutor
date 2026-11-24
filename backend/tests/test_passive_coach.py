@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from chess_tutor.api.events import CoachCommentEvent, GameEvent
+from chess_tutor.api.settings import CoachVerbosity
 from chess_tutor.coach import passive
 from chess_tutor.coach.llm import (
     ChatMessage,
@@ -24,7 +25,7 @@ from chess_tutor.coach.llm import (
     StructuredReply,
     Usage,
 )
-from chess_tutor.coach.prompt import CoachReply
+from chess_tutor.coach.prompt import VERBOSITY_DIRECTIVES, CoachReply
 from chess_tutor.concepts.state import new_state
 from chess_tutor.concepts.taxonomy import Concept
 from chess_tutor.main import create_app
@@ -162,8 +163,8 @@ def test_a_blunder_gets_a_grounded_comment(settings: Settings) -> None:
     assert '"locked_in":true' in call.messages[0].content
 
 
-@pytest.mark.parametrize(("stored", "expected"), [("brief", "one sentence"), ("detailed", "three")])
-def test_comments_use_the_stored_verbosity(settings: Settings, stored: str, expected: str) -> None:
+@pytest.mark.parametrize("stored", ["brief", "detailed"])
+def test_comments_use_the_stored_verbosity(settings: Settings, stored: CoachVerbosity) -> None:
     model = scripted(COMMENT)
     with started(settings, model) as harness:
         harness.api.put(
@@ -178,7 +179,9 @@ def test_comments_use_the_stored_verbosity(settings: Settings, stored: str, expe
         harness.play(4)
 
     [call] = model.calls
-    assert expected in call.messages[0].content
+    payload = json.loads(call.messages[0].content)
+    assert payload["verbosity"] == VERBOSITY_DIRECTIVES[stored]
+    assert "Overrides the usual length" not in call.system
 
 
 def test_default_verbosity_adds_no_length_directive(settings: Settings) -> None:
