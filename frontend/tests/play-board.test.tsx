@@ -228,6 +228,16 @@ describe("PlayBoard", () => {
     expect(screen.getByRole("button", { name: "Takeback" })).toBeDisabled();
   });
 
+  it("disables takeback for Black until the player has moved", async () => {
+    const { api } = fakeApi(
+      game({ mode: "passive", player_color: "black", moves: ["e4"] }),
+    );
+    render(<PlayBoard gameId={1} api={api} />);
+    expect(
+      await screen.findByRole("button", { name: "Takeback" }),
+    ).toBeDisabled();
+  });
+
   it.each(["regular", "active"] as const)(
     "does not offer a takeback in %s games",
     async (mode) => {
