@@ -101,3 +101,80 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    # A cold Stockfish cache can spend ~10 min on a stalled Ubuntu mirror before the flows run.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      # The Ubuntu mirror has stalled for 5+ minutes on this 64 MB package, so keep the .deb cached.
+      - name: Cache Stockfish package
+        uses: actions/cache@v5
+        with:
+          path: ~/stockfish-deb
+          key: stockfish-deb-${{ runner.os }}-v1
+      - name: Install Stockfish
+        timeout-minutes: 10
+        run: |
+          if ! ls ~/stockfish-deb/*.deb >/dev/null 2>&1; then
+            sudo apt-get update
+            mkdir -p ~/stockfish-deb
+            (cd ~/stockfish-deb && apt-get download stockfish)
+          fi
+          sudo dpkg -i ~/stockfish-deb/*.deb
+          echo "STOCKFISH_PATH=$(command -v stockfish || echo /usr/games/stockfish)" >> "$GITHUB_ENV"
+      - name: Cache Maia-3 install and weights
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.local/share/uv/tools/maia3
+            ~/.local/bin/maia3-*
+            ~/.cache/huggingface
+          key: maia3-${{ runner.os }}-${{ hashFiles('scripts/install_maia3.sh') }}
+      - name: Install Maia-3
+        working-directory: .
+        run: scripts/install_maia3.sh
+      - name: Cache Maia-2 install and weights
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.local/share/chess-tutor/maia2-venv
+            ~/.cache/maia2
+          key: maia2-${{ runner.os }}-${{ hashFiles('scripts/install_maia2.sh') }}
+      - name: Install Maia-2
+        working-directory: .
+        run: scripts/install_maia2.sh
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: uv sync --locked
+        working-directory: backend
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end flows
+        working-directory: frontend
+        run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          retention-days: 7
