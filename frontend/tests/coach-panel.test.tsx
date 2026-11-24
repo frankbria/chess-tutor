@@ -14,7 +14,8 @@ const message = (overrides: Partial<CoachMessage> = {}): CoachMessage => ({
   ply: 7,
   role: "coach",
   kind: "comment",
-  text: "That hands your opponent a piece.",
+  classification: "blunder",
+  phase: "middlegame",
   classification: "blunder",
   ...overrides,
 });
