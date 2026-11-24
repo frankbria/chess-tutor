@@ -18,6 +18,7 @@ import { OpeningLabel } from "@/components/play/opening-label";
 import { PromotionDialog } from "@/components/play/promotion-dialog";
 import {
   destinationsFrom,
+  gameAfterMove,
   isInCheck,
   isPromotion,
   lastMoveSquares,
@@ -115,6 +116,24 @@ export function PlayBoard({
     }
     setSyncToken((token) => token + 1);
   }, [api, gameId, accept]);
+
+  // Show the player's move at once; the server's answer (with the reply) replaces it.
+  const showMove = (uci: string) => {
+    if (!game) return;
+    const next = gameAfterMove(game, uci);
+    if (!next) return;
+    plyCount.current = next.moves.length;
+    setGame(next);
+  };
+
+  // A failed request must not leave the unaccepted move on screen, even if the resync fails too.
+  const restoreAfterFailure = async (premove: GameState | null) => {
+    if (premove) {
+      plyCount.current = premove.moves.length;
+      setGame(premove);
+    }
+    await resync();
+  };
 
   const hasCoachRef = useRef(false);
   useEffect(() => {
@@ -252,13 +271,15 @@ export function PlayBoard({
     setMessage(null);
     setSettling(true);
     setThinking(true);
+    const premove = game;
+    if (proposal) showMove(proposal.uci);
     try {
       accept(await api.lockIn(gameId));
       setProposal(null);
       setCoachMessages(withoutDrafts);
     } catch (error) {
       setMessage(errorMessage(error));
-      await resync();
+      await restoreAfterFailure(premove);
       // The server may still hold the proposal; keep the recovery controls only if it does.
       setProposal(await api.getPendingProposal(gameId).catch(() => proposal));
     } finally {
@@ -271,11 +292,13 @@ export function PlayBoard({
     if (game?.mode === "active") return proposeMove(uci);
     setMessage(null);
     setThinking(true);
+    const premove = game;
+    showMove(uci);
     try {
       accept(await api.playMove(gameId, uci));
     } catch (error) {
       setMessage(errorMessage(error));
-      await resync();
+      await restoreAfterFailure(premove);
     } finally {
       setThinking(false);
     }
@@ -395,7 +418,7 @@ export function PlayBoard({
           destinations={myTurn ? destinationsFrom(game.legal_moves) : undefined}
           syncToken={syncToken}
           proposal={
-            proposal
+            proposal && !thinking
               ? [proposal.uci.slice(0, 2), proposal.uci.slice(2, 4)]
               : undefined
           }
