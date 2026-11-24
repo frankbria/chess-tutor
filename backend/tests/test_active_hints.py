@@ -127,6 +127,8 @@ def test_three_rethinks_climb_nudge_pointer_consequence(settings: Settings) -> N
         events = harness.events()
         assert [event.hint_level for event in events] == [1, 2, 3]
         assert {event.phase for event in events} == {"opening"}
+        history = harness.api.get(f"/games/{harness.game_id}/coach/messages").json()
+        assert [message["hint_level"] for message in history] == [1, 2, 3]
     payloads = [json.loads(call.messages[0].content) for call in model.calls]
     assert [payload["hint_level"] for payload in payloads] == [1, 2, 3]
     for payload in payloads:

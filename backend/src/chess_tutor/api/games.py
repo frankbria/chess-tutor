@@ -372,6 +372,7 @@ class CoachMessageResponse(BaseModel):
     text: str
     classification: str | None = Field(description="The move's label, null if it was not scored")
     phase: GamePhase = Field(description="The game phase of the position before the move")
+    hint_level: int | None = Field(description="Active mode's hint rung (1 to 3), else null")
     created_at: datetime
 
 
@@ -399,6 +400,7 @@ def coach_messages(
             text=message.text,
             classification=classification,
             phase=detect_phase(chess.Board(fen_before), thresholds),
+            hint_level=message.hint_level,
             created_at=message.created_at,
         )
         for message, classification, fen_before in rows
