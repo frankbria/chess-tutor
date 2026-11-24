@@ -38,3 +38,18 @@ def test_one_game_has_no_interval() -> None:
 )
 def test_adjudication_calls_only_decisive_evals(centipawns: int, expected: float) -> None:
     assert adjudicate(centipawns) == expected
+
+
+def test_all_wins_still_has_an_interval_with_a_finite_lower_bound() -> None:
+    estimate = estimate_elo([1.0] * 20)
+    assert 0 < estimate.lower < estimate.elo_difference <= estimate.upper
+
+
+def test_all_losses_still_has_an_interval_with_a_finite_upper_bound() -> None:
+    estimate = estimate_elo([0.0] * 20)
+    assert estimate.lower <= estimate.elo_difference < estimate.upper < 0
+
+
+def test_all_draws_straddle_zero() -> None:
+    estimate = estimate_elo([0.5] * 20)
+    assert estimate.lower < 0 < estimate.upper

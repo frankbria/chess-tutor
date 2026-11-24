@@ -37,11 +37,18 @@ def estimate_elo(results: Sequence[float]) -> EloEstimate:
     if games < 2:
         raise ValueError("at least two games are needed for a confidence interval")
     score = sum(results) / games
-    variance = sum((result - score) ** 2 for result in results) / (games - 1)
-    margin = NORMAL_95 * math.sqrt(variance / games)
+    # Wilson interval on the score, with draws counted as half wins: unlike the sample variance
+    # it stays wide when every result is identical. Slightly conservative when draws are common.
+    z_squared = NORMAL_95**2
+    centre = (score + z_squared / (2 * games)) / (1 + z_squared / games)
+    margin = (
+        NORMAL_95
+        * math.sqrt(score * (1 - score) / games + z_squared / (4 * games**2))
+        / (1 + z_squared / games)
+    )
     return EloEstimate(
         score,
         elo_from_score(score),
-        elo_from_score(score - margin),
-        elo_from_score(score + margin),
+        elo_from_score(centre - margin),
+        elo_from_score(centre + margin),
     )

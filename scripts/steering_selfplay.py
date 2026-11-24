@@ -82,7 +82,13 @@ async def worker(
             game = await play_game(
                 index % 2 == 0, elo, rate, max_plies, index, maia, predictor, pool
             )
-            game |= {"index": index, "seconds": round(time.monotonic() - started, 1)}
+            game |= {
+                "elo": elo,
+                "rate": rate,
+                "max_plies": max_plies,
+                "index": index,
+                "seconds": round(time.monotonic() - started, 1),
+            }
             with output.open("a") as file:
                 file.write(json.dumps(game) + "\n")
 
@@ -97,11 +103,20 @@ async def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
 
-    finished = (
-        {json.loads(line)["index"] for line in arguments.output.read_text().splitlines()}
+    settings = {"elo": arguments.elo, "rate": arguments.rate, "max_plies": arguments.max_plies}
+    previous = (
+        [json.loads(line) for line in arguments.output.read_text().splitlines()]
         if arguments.output.exists()
-        else set()
+        else []
     )
+    for game in previous:
+        recorded = {name: game.get(name) for name in settings}
+        if recorded != settings:
+            raise SystemExit(
+                f"{arguments.output} holds games played with {recorded}, not {settings}; "
+                "use a new output file"
+            )
+    finished = {game["index"] for game in previous}
     queue: asyncio.Queue[int] = asyncio.Queue()
     for index in range(arguments.games):
         if index not in finished:
@@ -113,7 +128,13 @@ async def main() -> None:
         )
     )
 
-    games = [json.loads(line) for line in arguments.output.read_text().splitlines()]
+    games = (
+        [json.loads(line) for line in arguments.output.read_text().splitlines()]
+        if arguments.output.exists()
+        else []
+    )
+    if len(games) < 2:
+        raise SystemExit(f"{len(games)} game(s) finished; at least 2 are needed for an interval")
     estimate = estimate_elo([float(game["steered_result"]) for game in games])
     seconds = sum(float(game["seconds"]) for game in games)
     print(
