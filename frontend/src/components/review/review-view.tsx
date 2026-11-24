@@ -156,7 +156,7 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
         </div>
         <OpeningLabel
           step={review.opening_line[ply - 1]}
-          bookExit={review.book_exit}
+          bookExit={review.book_exit && ply >= review.book_exit.ply ? review.book_exit : null}
           moves={game.moves}
           playerColor={game.player_color}
         />

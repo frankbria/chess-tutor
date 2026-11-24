@@ -166,10 +166,15 @@ describe("ReviewView", () => {
 
     fireEvent.keyDown(window, { key: "ArrowLeft" });
     expect(screen.queryByText("Out of book")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Left book/)).not.toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Home" });
     expect(screen.queryByTestId("opening-label")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Left book/)).not.toBeInTheDocument();
     fireEvent.keyDown(window, { key: "ArrowRight" });
     expect(screen.getByTestId("opening-label")).toHaveTextContent("B00 · King's Pawn Game");
+    expect(screen.queryByText(/Left book/)).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "End" });
+    expect(screen.getByText("Left book at 3... Nd4 (opponent)")).toBeInTheDocument();
   });
 
   it("shows the summary and accuracy", async () => {

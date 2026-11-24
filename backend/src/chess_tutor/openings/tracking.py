@@ -50,9 +50,11 @@ def track_opening(moves: Iterable[chess.Move]) -> OpeningTrack:
     for ply, move in enumerate(moves, start=1):
         mover: Literal["white", "black"] = "white" if board.turn == chess.WHITE else "black"
         board.push(move)
-        if book_exit is None and not is_on_book_line(board):
-            book_exit = BookExit(ply, mover)
-        found = index.get(position_key(board), found)
+        if book_exit is None:
+            if is_on_book_line(board):
+                found = index.get(position_key(board), found)
+            else:
+                book_exit = BookExit(ply, mover)
         opening, variation = _split(found.name) if found else (None, None)
         line.append(
             OpeningStep(ply, book_exit is None, found.eco if found else None, opening, variation)

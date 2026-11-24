@@ -1,9 +1,10 @@
+from collections.abc import Iterator
 from pathlib import Path
 
 import chess
 import pytest
 
-from chess_tutor.openings import PHASE_FOCUS, GamePhase, Opening, detect_phase, lookup_opening
+from chess_tutor.openings import PHASE_FOCUS, GamePhase, Opening, book, detect_phase, lookup_opening
 from chess_tutor.openings.book import is_on_book_line, opening_index
 from chess_tutor.settings import PhaseThresholds
 
@@ -143,3 +144,23 @@ def test_book_line_includes_intermediate_positions() -> None:
     assert is_on_book_line(board)
     board.push_san("Qh4")
     assert not is_on_book_line(board)
+
+
+def test_the_book_data_is_parsed_once_for_the_index_and_the_line_positions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parses = 0
+    real_book_lines = book._book_lines
+
+    def counting_book_lines(data_directory: Path) -> Iterator[tuple[Opening, list[str]]]:
+        nonlocal parses
+        parses += 1
+        return real_book_lines(data_directory)
+
+    monkeypatch.setattr(book, "_book_lines", counting_book_lines)
+    book.load_book.cache_clear()
+
+    opening_index()
+    is_on_book_line(chess.Board())
+
+    assert parses == 1

@@ -88,6 +88,17 @@ def test_an_empty_game_has_no_line_and_no_exit() -> None:
     assert track.line == [] and track.book_exit is None
 
 
+def test_a_transposition_after_leaving_book_keeps_the_last_in_book_name() -> None:
+    track = track_opening(moves_from("e4 e5 Nf3 Nc6 Ng1 Nb8"))
+
+    assert track.book_exit == BookExit(5, "white")
+    last_in_book = track.line[3]
+    assert last_in_book.eco == "C44"
+    assert [(step.eco, step.opening, step.variation) for step in track.line[4:]] == [
+        (last_in_book.eco, last_in_book.opening, last_in_book.variation)
+    ] * 2
+
+
 def test_a_forty_move_game_is_tracked_quickly() -> None:
     moves = moves_from("e4 e5 Nf3 Nc6 " + "Ng1 Nb8 Nf3 Nc6 " * 19)
     assert len(moves) == 80
