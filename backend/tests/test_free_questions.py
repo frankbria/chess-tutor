@@ -7,7 +7,7 @@ from scripted_language_model import ScriptedLanguageModel
 from scripted_opponent import ScriptedOpponent
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from test_active_hints import BLUNDER, best_move_before_blunder
+from test_active_hints import BLUNDER, GatedLanguageModel, best_move_before_blunder
 from test_active_hints import Harness as ActiveHarness
 from test_active_hints import started as started_active
 from test_passive_coach import PRICED, Harness, scripted, started
@@ -83,6 +83,7 @@ def test_the_conversation_history_keeps_the_question_and_the_reply(settings: Set
             ("player", "asked", QUESTION),
             ("coach", "answer", reply.text),
         ]
+        assert {m["phase"] for m in history} == {"opening"}
 
 
 def test_a_question_needs_a_tutor_mode_and_a_running_game_and_some_text(
@@ -138,7 +139,9 @@ def test_an_active_question_follows_the_hint_ladder_and_never_names_the_best_mov
     model = ScriptedLanguageModel(PRICED)
     model.queue_structured(NUDGE)  # the hint for the first proposal
     model.queue_structured(CoachReply(text=f"Look at {best}.", fact_ids=["allows:c6e5"]))
-    model.queue_structured(REPLY)  # the rewrite, after the leak was rejected
+    model.queue_structured(
+        CoachReply(text=NUDGE.text, fact_ids=["allows:c6e5"])
+    )  # the rewrite, after the leak was rejected
     model.queue_structured(REPLY)  # the hint for the second proposal
     model.queue_structured(REPLY)  # the answer, one rethink later
     with started_active(settings, model) as harness:
@@ -256,3 +259,51 @@ def test_a_review_question_without_a_language_model_is_a_503(settings: Settings)
         with Session(app.state.engine) as session:
             assert session.scalars(select(CoachMessage)).all() == []
             assert session.scalars(select(Game)).one().llm_cost == 0
+
+
+def test_an_answer_built_for_a_taken_back_line_is_not_stored_for_the_new_one(
+    settings: Settings,
+) -> None:
+    board = chess.Board()
+    for san in ("e4", "e5"):
+        board.push_san(san)
+    cited = [fact.id for fact in build_fact_packet(board).facts[:1]]
+    model = GatedLanguageModel()
+    model.queue_structured(CoachReply(text="Keep an eye on the centre.", fact_ids=cited))
+    with started(settings, model) as harness:
+        game = f"/games/{harness.game_id}"
+        harness.api.post(f"{game}/moves", json={"uci": "e2e4"})
+        harness.api.post(f"{game}/coach/messages", json={"text": QUESTION})
+        assert harness.api.portal is not None
+        harness.api.portal.call(model.asked.wait)
+
+        harness.api.post(f"{game}/takeback")
+        harness.api.post(f"{game}/moves", json={"uci": "d2d4"})  # a different line, same length
+        harness.api.portal.call(model.release.set)
+        harness.api.portal.call(harness.app.state.passive_coach.wait_until_idle)
+
+        assert harness.events() == [] or all(
+            not isinstance(e, CoachCommentEvent) or e.kind.value != "answer"
+            for e in harness.events()
+        )
+        assert ("coach", "answer") not in [(r, k) for _, r, k in stored(harness)]
+
+
+def test_a_question_after_a_rethink_keeps_the_rethink_count(settings: Settings) -> None:
+    settings = settings.model_copy(update={"active_remark_every_n_proposals": 1000})
+    model = ScriptedLanguageModel(PRICED)
+    model.queue_structured(NUDGE)  # the hint for the proposal
+    board = chess.Board()
+    for san in ("e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6"):
+        board.push_san(san)
+    cited = [fact.id for fact in build_fact_packet(board).facts[:1]]
+    model.queue_structured(CoachReply(text="Think about the centre.", fact_ids=cited))
+    with started_active(settings, model) as harness:
+        harness.play_setup()
+        harness.propose(BLUNDER)
+        harness.post("moves/rethink")
+
+        ask(harness)
+
+    payloads = [json.loads(call.messages[0].content) for call in model.calls]
+    assert [p["hint_level"] for p in payloads if p["event"] == "answer_question"] == [2]

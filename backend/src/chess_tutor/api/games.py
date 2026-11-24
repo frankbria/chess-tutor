@@ -440,6 +440,12 @@ def coach_messages(
             .where(CoachMessage.game_id == game_id)
             .order_by(CoachMessage.id)
         ).all()
+        # A message at the next ply has no move row yet; it is about the current position.
+        current = chess.Board()
+        for uci in session.scalars(
+            select(Move.uci).where(Move.game_id == game_id).order_by(Move.ply)
+        ):
+            current.push_uci(uci)
     return [
         CoachMessageResponse(
             ply=message.ply,
@@ -447,7 +453,7 @@ def coach_messages(
             kind=message.kind,
             text=message.text,
             classification=classification,
-            phase=detect_phase(chess.Board(fen_before), thresholds),
+            phase=detect_phase(chess.Board(fen_before) if fen_before else current, thresholds),
             hint_level=message.hint_level,
             created_at=message.created_at,
         )

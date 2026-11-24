@@ -126,6 +126,7 @@ class GroundingErrorKind(StrEnum):
     PIECE_MISMATCH = "piece_mismatch"
     BEST_MOVE_LEAK = "best_move_leak"
     META_COMMENTARY = "meta_commentary"
+    HINT_TOO_SPECIFIC = "hint_too_specific"
     NO_FACT_CITED = "no_fact_cited"
 
 
@@ -285,6 +286,17 @@ def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingEr
     text = reply.text
     mentioned_moves = [match.group() for match in _SAN.finditer(text)]
     bare_text = _SAN.sub(" ", text)
+    if (
+        context.active_pre_lock_in
+        and context.hint_level == 1
+        and (mentioned_moves or _SQUARE_TOKEN.search(bare_text))
+    ):
+        errors.append(
+            _error(
+                GroundingErrorKind.HINT_TOO_SPECIFIC,
+                "A level 1 nudge names no square or move. Ask a general question instead.",
+            )
+        )
 
     # The student's own proposed move may be named even when it happens to be the best one.
     if (

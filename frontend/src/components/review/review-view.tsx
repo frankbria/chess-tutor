@@ -70,7 +70,7 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
     };
     const onKey = (event: KeyboardEvent) => {
       const target = keys[event.key];
-      if (!target) return;
+      if (!target || event.target instanceof HTMLInputElement) return;
       event.preventDefault();
       setPly((from) => Math.min(totalPlies, Math.max(0, target(from))));
     };
@@ -231,7 +231,9 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
                 note.role === "player" ? "border-l-muted-foreground bg-muted" : "border-l-primary",
               )}
             >
-              {note.role === "player" && <span className="font-semibold">You asked: </span>}
+              {note.role === "player" && (
+                <span className="font-semibold">{note.kind === "answer" ? "Your answer: " : "You asked: "}</span>
+              )}
               {note.text}
             </p>
           ))}

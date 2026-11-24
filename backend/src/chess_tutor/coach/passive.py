@@ -364,12 +364,13 @@ class PassiveCoach:
             board = _board_after(session, game_id)
             if len(board.move_stack) + 1 != ply:  # a move or takeback since the question
                 return
+            asked_fen = board.fen()
             mode = game.mode
             proposal = _pending_proposal(session, game_id, ply) if mode is GameMode.ACTIVE else None
         context = await self._question_context(game_id, board, text, mode, proposal)
         reply = await coach_reply_with_grounding(self._model, context)
         with Session(self._engine) as session:
-            if len(_board_after(session, game_id).move_stack) + 1 != ply:
+            if _board_after(session, game_id).fen() != asked_fen:  # a takeback and a new line too
                 return
             self._store_message(
                 session, game_id, ply, CoachRole.COACH, CoachMessageKind.ANSWER, "", reply
@@ -625,6 +626,5 @@ def _pending_proposal(session: Session, game_id: int, ply: int) -> MoveProposal 
         select(MoveProposal).where(
             MoveProposal.game_id == game_id,
             MoveProposal.ply == ply,
-            MoveProposal.uci.is_not(None),
         )
     ).first()

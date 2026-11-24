@@ -252,4 +252,23 @@ describe("ReviewView", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("the coach is not running");
     expect(screen.getByLabelText("Ask the coach")).toHaveValue("Why?");
   });
+
+  it("does not step the game while typing in the question box", async () => {
+    const user = userEvent.setup();
+    renderReview();
+    await screen.findByTestId("board");
+    await user.click(screen.getByLabelText("Ask the coach"));
+    await user.keyboard("{ArrowLeft}{Home}");
+    expect(plyOf()).toBe("6");
+  });
+
+  it("labels the player's own answers as answers, not questions", async () => {
+    const answered: CoachMessage[] = [
+      { ply: 6, role: "player", kind: "answer", text: "I wanted a pawn", classification: null, phase: "opening" },
+    ];
+    renderReview({ getCoachMessages: async () => answered });
+    await screen.findByText("I wanted a pawn");
+    expect(screen.getByText("Your answer:")).toBeInTheDocument();
+    expect(screen.queryByText("You asked:")).not.toBeInTheDocument();
+  });
 });
