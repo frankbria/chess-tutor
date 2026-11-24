@@ -124,7 +124,9 @@ def test_three_rethinks_climb_nudge_pointer_consequence(settings: Settings) -> N
             ("hint", 2, 7),
             ("hint", 3, 7),
         ]
-        assert [event.hint_level for event in harness.events()] == [1, 2, 3]
+        events = harness.events()
+        assert [event.hint_level for event in events] == [1, 2, 3]
+        assert {event.phase for event in events} == {"opening"}
     payloads = [json.loads(call.messages[0].content) for call in model.calls]
     assert [payload["hint_level"] for payload in payloads] == [1, 2, 3]
     for payload in payloads:

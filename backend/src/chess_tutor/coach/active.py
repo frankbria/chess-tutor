@@ -165,6 +165,7 @@ class HintCoach:
                 ply=proposal.ply,
                 text=reply.text,
                 classification="remark" if fine else "hint",
+                phase=phase,
                 fact_ids=reply.fact_ids,
                 source=reply.source.value,
                 hint_level=level,

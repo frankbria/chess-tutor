@@ -246,6 +246,7 @@ class PassiveCoach:
                 ply=ply,
                 text=reply.text,
                 classification=classification.value,
+                phase=phase,
                 fact_ids=reply.fact_ids,
                 source=reply.source.value,
             ),

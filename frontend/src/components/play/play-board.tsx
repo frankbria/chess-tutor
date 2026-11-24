@@ -5,13 +5,21 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { CoachPanel } from "@/components/play/coach-panel";
 import { ClockDisplay } from "@/components/play/clock-display";
 import { Chessboard } from "@/components/play/chessboard";
 import { GameOverDialog } from "@/components/play/game-over-dialog";
 import { MoveList } from "@/components/play/move-list";
 import { PromotionDialog } from "@/components/play/promotion-dialog";
 import { destinationsFrom, isInCheck, isPromotion, lastMoveSquares } from "@/lib/chess-board";
-import { ApiError, httpGameApi, type GameApi, type GameState } from "@/lib/game-api";
+import { cn } from "@/lib/utils";
+import { ApiError, httpGameApi, type CoachMessage, type GameApi, type GameState } from "@/lib/game-api";
+
+const sameMessage = (a: CoachMessage, b: CoachMessage) => a.ply === b.ply && a.role === b.role && a.kind === b.kind && a.text === b.text;
+
+/** The stream and the history fetch can overlap, so a message is only added once. */
+const withoutRepeats = (known: CoachMessage[], incoming: CoachMessage[]) =>
+  incoming.filter((message) => !known.some((existing) => sameMessage(existing, message)));
 
 const errorMessage = (error: unknown) =>
   error instanceof ApiError ? error.message : "Could not reach the game server. Try again.";
@@ -28,7 +36,9 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [connectionLost, setConnectionLost] = useState(false);
+  const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([]);
   const plyCount = useRef(0);
+  const hasCoach = game !== null && game.mode !== "regular";
 
   // The server is the source of truth; ignore anything older than what is already shown.
   const accept = useCallback((next: GameState) => {
@@ -49,6 +59,10 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   useEffect(() => {
     api.getGame(gameId).then(accept, (error: unknown) => setLoadError(errorMessage(error)));
     return api.subscribe(gameId, {
+      onCoachComment: ({ ply, text, classification, phase }) => {
+        const comment: CoachMessage = { ply, role: "coach", kind: "comment", text, classification, phase };
+        setCoachMessages((known) => [...known, ...withoutRepeats(known, [comment])]);
+      },
       onSnapshot: () => {
         setConnectionLost(false);
         void resync();
@@ -67,6 +81,14 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
       onConnectionLost: () => setConnectionLost(true),
     });
   }, [api, gameId, accept, resync, loadAttempt]);
+
+  useEffect(() => {
+    if (!hasCoach) return;
+    api.getCoachMessages(gameId).then(
+      (history) => setCoachMessages((known) => [...history, ...withoutRepeats(history, known)]),
+      (error: unknown) => setMessage(errorMessage(error)),
+    );
+  }, [api, gameId, hasCoach]);
 
   const submitMove = async (uci: string) => {
     setMessage(null);
@@ -96,6 +118,8 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
       const next = await api.takeback(gameId);
       plyCount.current = 0; // a takeback is the one change that shortens the move list
       accept(next);
+      // The server drops the coach messages of the removed plies, so replace rather than merge.
+      if (hasCoach) setCoachMessages(await api.getCoachMessages(gameId));
     } catch (error) {
       setMessage(errorMessage(error));
     }
@@ -130,7 +154,7 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   };
 
   return (
-    <div className="grid gap-4 md:grid-cols-[minmax(0,40rem)_minmax(16rem,1fr)]">
+    <div className={cn("grid gap-4 md:grid-cols-[minmax(0,40rem)_minmax(16rem,1fr)]", hasCoach && "max-md:pb-16")}>
       <Chessboard
         fen={game.fen}
         orientation={game.player_color}
@@ -176,6 +200,7 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
           </p>
         )}
         <MoveList moves={game.moves} />
+        {hasCoach && <CoachPanel messages={coachMessages} moves={game.moves} />}
         {game.status === "active" && game.mode === "passive" && (
           <Button
             variant="outline"

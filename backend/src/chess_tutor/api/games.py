@@ -15,10 +15,11 @@ equal to the object's `type`:
   A timed game's stream checks the clock once a second and emits `game_over` on a flag.
 
 - `coach_comment` (Passive mode, when the coach is on): `{"type", "ply", "text", "classification",
-  "fact_ids", "source"}`: the coach's comment on the player's move at `ply` (1-based, whole game),
-  only for an Inaccuracy or worse and for Great/Brilliant moves. It is produced in a background
-  task so the opponent's reply is never delayed: expect it after `opponent_move`. When the game ends
-  on the player's move or by resignation, `game_over` waits for the final comment (at most 30
+  "phase", "fact_ids", "source"}`: the coach's comment on the player's move at `ply` (1-based,
+  whole game; `phase` is that position's opening/middlegame/endgame), only for an Inaccuracy
+  or worse and for Great/Brilliant moves. It is produced in a background task so the opponent's
+  reply is never delayed: expect it after `opponent_move`. When the game ends on the player's
+  move or by resignation, `game_over` waits for the final comment (at most 30
   seconds), so the comment comes first; past that cap it is only stored. `source` is `llm`,
   `llm_regenerated` or `template`.
 
@@ -33,6 +34,7 @@ Events are published after the service call that caused them, so subscribe befor
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable
+from datetime import datetime
 from typing import Annotated
 
 import chess
@@ -40,6 +42,8 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
+from sqlalchemy import Engine, select
+from sqlalchemy.orm import Session
 
 from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
 from chess_tutor.coach.active import ActiveTutor
@@ -62,7 +66,19 @@ from chess_tutor.games.service import (
     TakebackNotAllowedError,
     WrongModeError,
 )
-from chess_tutor.models import Game, GameMode, GameResult, GameStatus, PlayerColor, TimeControl
+from chess_tutor.models import (
+    CoachMessage,
+    CoachMessageKind,
+    CoachRole,
+    Game,
+    GameMode,
+    GameResult,
+    GameStatus,
+    Move,
+    PlayerColor,
+    TimeControl,
+)
+from chess_tutor.openings.phase import GamePhase, detect_phase
 
 CLOCK_POLL_SECONDS = 1.0
 DEFAULT_PLAYER_ID = 1  # shortcut: single-user app, no auth yet; replace with the signed-in player.
@@ -347,6 +363,46 @@ async def takeback(game_id: int, service: Service) -> GameResponse:
 @router.get("/{game_id}/pgn", response_class=PlainTextResponse)
 def get_pgn(game_id: int, service: Service) -> str:
     return service.get_pgn(game_id)
+
+
+class CoachMessageResponse(BaseModel):
+    ply: int = Field(description="The 1-based ply of the move the message refers to")
+    role: CoachRole
+    kind: CoachMessageKind
+    text: str
+    classification: str | None = Field(description="The move's label, null if it was not scored")
+    phase: GamePhase = Field(description="The game phase of the position before the move")
+    created_at: datetime
+
+
+@router.get("/{game_id}/coach/messages")
+def coach_messages(
+    game_id: Annotated[int, Depends(existing_game_id)], request: Request
+) -> list[CoachMessageResponse]:
+    """The persisted conversation in order, so a reloaded panel matches the live stream."""
+    engine: Engine = request.app.state.engine
+    thresholds = request.app.state.settings.thresholds.phase
+    with Session(engine) as session:
+        rows = session.execute(
+            select(CoachMessage, Move.classification, Move.fen_before)
+            .outerjoin(
+                Move, (Move.game_id == CoachMessage.game_id) & (Move.ply == CoachMessage.ply)
+            )
+            .where(CoachMessage.game_id == game_id)
+            .order_by(CoachMessage.id)
+        ).all()
+    return [
+        CoachMessageResponse(
+            ply=message.ply,
+            role=message.role,
+            kind=message.kind,
+            text=message.text,
+            classification=classification,
+            phase=detect_phase(chess.Board(fen_before), thresholds),
+            created_at=message.created_at,
+        )
+        for message, classification, fen_before in rows
+    ]
 
 
 @router.get("/{game_id}/coach/stream", response_class=EventSourceResponse)

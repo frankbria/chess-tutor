@@ -28,7 +28,24 @@ export interface GameState {
   ended_on_time: boolean;
 }
 
+export type GamePhase = "opening" | "middlegame" | "endgame";
+
+export type CoachMessageKind = "comment" | "question" | "hint" | "answer";
+
+export interface CoachMessage {
+  /** The 1-based ply of the move this message refers to. */
+  ply: number;
+  role: "coach" | "player";
+  kind: CoachMessageKind;
+  text: string;
+  /** The move's label (e.g. "blunder"); null if it was not scored. */
+  classification: string | null;
+  /** The phase of the position before the move. */
+  phase: GamePhase;
+}
+
 export interface GameStreamHandlers {
+  onCoachComment: (event: { ply: number; text: string; classification: string; phase: GamePhase }) => void;
   onSnapshot: (event: { fen: string; status: string }) => void;
   onOpponentMove: (event: { uci: string; san: string; fen: string; clock: ClockState | null }) => void;
   onGameOver: (event: { result: GameResult; reason: string }) => void;
@@ -41,6 +58,7 @@ export interface GameApi {
   getGame(id: number): Promise<GameState>;
   playMove(id: number, uci: string): Promise<GameState>;
   resign(id: number): Promise<GameState>;
+  getCoachMessages(id: number): Promise<CoachMessage[]>;
   /** Passive games only: undoes the player's last move and the opponent's reply. */
   takeback(id: number): Promise<GameState>;
   /** Returns the unsubscribe function. */
@@ -105,6 +123,7 @@ export const httpGameApi: GameApi = {
   getGame: (id) => request(`/games/${id}`, "GET"),
   playMove: (id, uci) => request(`/games/${id}/moves`, "POST", { uci }),
   resign: (id) => request(`/games/${id}/resign`, "POST"),
+  getCoachMessages: (id) => request<CoachMessage[]>(`/games/${id}/coach/messages`, "GET"),
   takeback: (id) => request(`/games/${id}/takeback`, "POST"),
   subscribe(id, handlers) {
     const source = new EventSource(`${API_BASE_URL}/games/${id}/coach/stream`);
@@ -114,6 +133,7 @@ export const httpGameApi: GameApi = {
         if (event) handle(event);
       });
     source.onerror = handlers.onConnectionLost;
+    listen("coach_comment", handlers.onCoachComment);
     listen("snapshot", handlers.onSnapshot);
     listen("opponent_move", handlers.onOpponentMove);
     listen("game_over", (event: { result: GameResult; reason: string }) => {
