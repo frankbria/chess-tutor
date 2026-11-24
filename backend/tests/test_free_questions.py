@@ -1,8 +1,10 @@
 import asyncio
 import json
+from collections.abc import Sequence
 
 import chess
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 from scripted_language_model import ScriptedLanguageModel
 from scripted_opponent import ScriptedOpponent
 from sqlalchemy import select
@@ -14,6 +16,7 @@ from test_passive_coach import PRICED, Harness, scripted, started
 
 from chess_tutor.analysis.move_delta import san_line
 from chess_tutor.api.events import CoachCommentEvent
+from chess_tutor.coach.llm import ChatMessage, ModelTier, StructuredReply
 from chess_tutor.coach.prompt import CoachReply
 from chess_tutor.coach.summary import SummaryDraft
 from chess_tutor.engines.stockfish import Budget, StockfishPool
@@ -56,9 +59,9 @@ def test_a_question_without_an_open_one_gets_a_grounded_reply_about_the_position
 
         assert ask(harness) == 202
 
-        assert stored(harness) == [(5, "player", "asked"), (5, "coach", "answer")]
+        assert stored(harness) == [(4, "player", "asked"), (4, "coach", "answer")]
         [event] = [e for e in harness.events() if isinstance(e, CoachCommentEvent)]
-        assert (event.kind.value, event.ply, event.text) == ("answer", 5, reply.text)
+        assert (event.kind.value, event.ply, event.text) == ("answer", 4, reply.text)
     [call] = model.calls
     payload = json.loads(call.messages[0].content)
     assert payload["event"] == "answer_question" and payload["player_message"] == QUESTION
@@ -113,7 +116,7 @@ def test_without_a_language_model_the_question_is_kept_and_nothing_replies(
         assert response.status_code == 202
         with Session(app.state.engine) as session:
             [message] = session.scalars(select(CoachMessage)).all()
-        assert (message.ply, message.kind.value) == (1, "asked")
+        assert (message.ply, message.kind.value) == (0, "asked")
 
 
 def test_an_open_thought_question_is_still_answered_not_asked(settings: Settings) -> None:
@@ -160,7 +163,7 @@ def test_an_active_question_follows_the_hint_ladder_and_never_names_the_best_mov
                 m.text for m in session.scalars(select(CoachMessage).order_by(CoachMessage.id))
             ]
             sources = [m.source.value for m in session.scalars(select(CoachMessage))]
-    assert (7, "player", "asked") in messages and (7, "coach", "answer") in messages
+    assert (6, "player", "asked") in messages and (6, "coach", "answer") in messages
     assert all(best not in text for text in texts)
     assert "llm_regenerated" in sources  # the first answer named the best move and was rewritten
     asked = [json.loads(call.messages[0].content) for call in model.calls]
@@ -287,6 +290,8 @@ def test_an_answer_built_for_a_taken_back_line_is_not_stored_for_the_new_one(
             for e in harness.events()
         )
         assert ("coach", "answer") not in [(r, k) for _, r, k in stored(harness)]
+        with Session(harness.app.state.engine) as session:
+            assert session.get_one(Game, harness.game_id).llm_cost > 0  # the call was billed
 
 
 def test_a_question_after_a_rethink_keeps_the_rethink_count(settings: Settings) -> None:
@@ -307,3 +312,66 @@ def test_a_question_after_a_rethink_keeps_the_rethink_count(settings: Settings) 
 
     payloads = [json.loads(call.messages[0].content) for call in model.calls]
     assert [p["hint_level"] for p in payloads if p["event"] == "answer_question"] == [2]
+
+
+class AnswerGatedLanguageModel(ScriptedLanguageModel):
+    """Holds only the answers to the player's questions."""
+
+    def __init__(self) -> None:
+        super().__init__(PRICED)
+        self.asked = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def structured[ParsedModel: BaseModel](
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        messages: Sequence[ChatMessage],
+        schema: type[ParsedModel],
+    ) -> StructuredReply[ParsedModel]:
+        if '"event":"answer_question"' in messages[0].content:
+            self.asked.set()
+            await self.release.wait()
+        return await super().structured(tier=tier, system=system, messages=messages, schema=schema)
+
+
+def test_an_answer_about_a_rethought_proposal_is_not_stored(settings: Settings) -> None:
+    settings = settings.model_copy(update={"active_remark_every_n_proposals": 1000})
+    model = AnswerGatedLanguageModel()
+    for _ in range(4):
+        model.queue_structured(NUDGE)
+    with started_active(settings, model) as harness:
+        harness.play_setup()
+        harness.propose(BLUNDER)
+        harness.api.post(f"/games/{harness.game_id}/coach/messages", json={"text": QUESTION})
+        assert harness.api.portal is not None
+        harness.api.portal.call(model.asked.wait)
+
+        harness.post("moves/rethink")
+        harness.propose("d2d4")  # the board is unchanged, the proposal is not
+        harness.api.portal.call(model.release.set)
+        harness.api.portal.call(harness.app.state.passive_coach.wait_until_idle)
+
+        assert ("coach", "answer") not in [(r, k) for _, r, k in stored(harness)]
+        with Session(harness.app.state.engine) as session:
+            assert session.get_one(Game, harness.game_id).llm_cost > 0
+
+
+def test_the_review_shows_a_game_question_on_the_ply_it_was_asked_about(
+    settings: Settings,
+) -> None:
+    board = chess.Board()
+    for san in ("e4", "e5", "Nf3", "Nc6"):
+        board.push_san(san)
+    cited = [fact.id for fact in build_fact_packet(board).facts[:1]]
+    model = scripted(DRAFT, CoachReply(text="Keep an eye on the centre.", fact_ids=cited))
+    with started(settings, model) as harness:
+        harness.play(2)
+        ask(harness)
+        harness.api.post(f"/games/{harness.game_id}/resign")
+        assert harness.api.portal is not None
+        harness.api.portal.call(harness.app.state.passive_coach.wait_until_idle)
+
+        history = harness.api.get(f"/games/{harness.game_id}/coach/messages").json()
+        assert [(m["ply"], m["kind"]) for m in history] == [(4, "asked"), (4, "answer")]

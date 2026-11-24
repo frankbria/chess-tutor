@@ -39,6 +39,7 @@ const KIND_LABEL: Record<CoachMessageKind, string> = {
 
 /** "3. Nxe5" for a white ply, "3... Nf6" for black; falls back to the ply when the move is unknown. */
 function moveLabel(ply: number, san: string | undefined) {
+  if (ply === 0) return "Start position";
   if (!san) return `Move ${ply}`;
   const number = Math.ceil(ply / 2);
   return ply % 2 === 1 ? `${number}. ${san}` : `${number}... ${san}`;

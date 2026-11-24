@@ -140,9 +140,10 @@ class PassiveCoach:
         self.schedule(game_id, ply, skipped_question=True)
 
     def _ask(self, game_id: int, text: str) -> None:
-        """Store the player's question, at the ply the next move takes; the reply is background."""
+        """Store the player's question at the last played ply (0 before any move), the position it
+        is about, so the review shows it under that move; the reply is background."""
         with Session(self._engine) as session:
-            ply = len(_board_after(session, game_id).move_stack) + 1
+            ply = len(_board_after(session, game_id).move_stack)
             self._store_message(
                 session, game_id, ply, CoachRole.PLAYER, CoachMessageKind.ASKED, text
             )
@@ -377,21 +378,27 @@ class PassiveCoach:
         with Session(self._engine) as session:
             game = session.get_one(Game, game_id)
             board = _board_after(session, game_id)
-            if len(board.move_stack) + 1 != ply:  # a move or takeback since the question
+            if len(board.move_stack) != ply:  # a move or takeback since the question
                 return
             asked_fen = board.fen()
             mode = game.mode
-            proposal = _pending_proposal(session, game_id, ply) if mode is GameMode.ACTIVE else None
+            proposal = (
+                _pending_proposal(session, game_id, ply + 1) if mode is GameMode.ACTIVE else None
+            )
+            asked_proposal = _proposal_key(proposal)
         context = await self._question_context(game_id, board, text, mode, proposal)
         reply = await coach_reply_with_grounding(self._model, context)
         with Session(self._engine) as session:
-            if _board_after(session, game_id).fen() != asked_fen:  # a takeback and a new line too
+            record_llm_cost(session, game_id, reply.cost)  # billed even when the answer is stale
+            overtaken = _board_after(session, game_id).fen() != asked_fen or asked_proposal != (
+                _proposal_key(_pending_proposal(session, game_id, ply + 1))
+            )
+            if overtaken:  # a takeback, a new line, or a rethought proposal
                 return
             self._store_message(
                 session, game_id, ply, CoachRole.COACH, CoachMessageKind.ANSWER, "", reply
             )
             session.commit()
-            record_llm_cost(session, game_id, reply.cost)
         self._events.publish(
             game_id,
             CoachCommentEvent(
@@ -634,6 +641,10 @@ def _board_after(session: Session, game_id: int, ply: int | None = None) -> ches
     for uci in session.scalars(query):
         board.push_uci(uci)
     return board
+
+
+def _proposal_key(proposal: MoveProposal | None) -> tuple[str | None, int] | None:
+    return None if proposal is None else (proposal.uci, proposal.rethinks)
 
 
 def _pending_proposal(session: Session, game_id: int, ply: int) -> MoveProposal | None:

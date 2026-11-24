@@ -75,6 +75,11 @@ function fakeApi(
 }
 
 describe("CoachPanel", () => {
+  it("labels a message about the start position", () => {
+    render(<CoachPanel messages={[message({ ply: 0 })]} moves={[]} />);
+    expect(screen.getByText("Start position")).toBeInTheDocument();
+  });
+
   it.each([
     ["brilliant", "!!", "Brilliant"],
     ["great", "!", "Great move"],
