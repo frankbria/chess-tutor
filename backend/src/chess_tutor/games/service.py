@@ -37,6 +37,9 @@ class PlayerMoveObserver(Protocol):
     def player_moved(self, game: Game, ply: int) -> None:
         """Called under the move lock right after the player's move is committed."""
 
+    def game_finished(self, game_id: int) -> None:
+        """Called under the move lock right after a game's end is flushed, before its commit."""
+
     def is_coaching(self, game_id: int) -> bool:
         """True while work on the game's moves is pending; it then refreshes concepts itself."""
 
@@ -357,6 +360,8 @@ class GameService:
             refresh_concept_states(
                 session, game.player_id, game.id, game.ended_at, self._thresholds.concept_state
             )
+        if self._observer is not None:
+            self._observer.game_finished(game.id)
 
     def _render_pgn(self, session: Session, game: Game) -> str:
         player = session.get_one(Player, game.player_id)

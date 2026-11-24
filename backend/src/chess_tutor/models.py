@@ -217,3 +217,18 @@ class CoachMessage(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+class GameSummary(Base):
+    __tablename__ = "game_summary"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), unique=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id"), index=True)
+    summary: Mapped[str]
+    key_moments: Mapped[str]  # JSON list of short sentences
+    concepts: Mapped[str]  # JSON list of concept values tagged in the game
+    source: Mapped[CoachMessageSource] = mapped_column(string_enum(CoachMessageSource))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
