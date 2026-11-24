@@ -1,10 +1,20 @@
+import asyncio
 from collections.abc import AsyncIterator, Sequence
 
 import pytest
 from pydantic import BaseModel, ValidationError
+from scripted_language_model import ScriptedLanguageModel
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
-from test_passive_coach import PRICED, DownLanguageModel, Harness, scripted, started
+from test_passive_coach import (
+    GENERIC,
+    PLAYER_MOVES,
+    PRICED,
+    DownLanguageModel,
+    Harness,
+    scripted,
+    started,
+)
 from test_thought_questions import REPLY, answer, asking
 
 from chess_tutor.coach.llm import ChatMessage, LanguageModelError, ModelTier, StructuredReply
@@ -144,3 +154,38 @@ async def test_tags_for_a_taken_back_move_do_not_attach_to_its_replacement(
         await tag_reasoning(engine, ReplacesTheMoveWhileThinking(engine, tags), 1, 7, "a pawn")
 
         assert reasoning_events(harness) == []
+
+
+class BlocksOnReasoning(ScriptedLanguageModel):
+    """Replies to the coach from its script, but never answers the reasoning classifier."""
+
+    async def structured[ParsedModel: BaseModel](
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        messages: Sequence[ChatMessage],
+        schema: type[ParsedModel],
+    ) -> StructuredReply[ParsedModel]:
+        if schema is ReasoningTags:
+            await asyncio.Event().wait()
+        return await super().structured(tier=tier, system=system, messages=messages, schema=schema)
+
+
+def test_a_stalled_tagging_call_does_not_hold_up_the_next_comment(settings: Settings) -> None:
+    model = BlocksOnReasoning(PRICED)
+    model.queue_structured(REPLY)
+    model.queue_structured(GENERIC)
+    with started(asking(settings), model) as harness:
+        harness.play(4)
+        text = {"text": "a pawn"}
+        assert (
+            harness.api.post(f"/games/{harness.game_id}/coach/messages", json=text).status_code
+            == 202
+        )
+        move = {"uci": PLAYER_MOVES[4]}
+        assert harness.api.post(f"/games/{harness.game_id}/moves", json=move).status_code == 200
+        assert harness.api.portal is not None
+        harness.api.portal.call(harness.app.state.passive_coach.wait_for_game, harness.game_id)
+
+        assert [(m.ply, m.kind.value) for m in harness.comments()][-1] == (9, "comment")
