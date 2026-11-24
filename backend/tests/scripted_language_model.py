@@ -38,9 +38,14 @@ class ScriptedLanguageModel:
         schema: type[ParsedModel],
     ) -> StructuredReply[ParsedModel]:
         self.calls.append(RecordedCall(tier, system, messages))
-        reply = self._structured_replies.popleft()
-        if not isinstance(reply, schema):
-            raise AssertionError(f"queued {type(reply).__name__}, asked for {schema.__name__}")
+        # Concurrent background calls (coach reply, reasoning tags) ask in no fixed order, so
+        # each takes the first queued reply of its own schema.
+        reply = next(
+            (queued for queued in self._structured_replies if isinstance(queued, schema)), None
+        )
+        if reply is None:
+            raise AssertionError(f"nothing queued for {schema.__name__}")
+        self._structured_replies.remove(reply)
         return StructuredReply(reply, self._usage_for(tier))
 
     async def stream_text(
