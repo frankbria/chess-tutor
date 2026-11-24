@@ -6,7 +6,7 @@ import json
 import logging
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
@@ -33,13 +33,16 @@ class ReasoningPattern(StrEnum):
 
 
 class ReasoningTags(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     patterns: list[ReasoningPattern] = Field(max_length=3)
 
 
 SYSTEM_PROMPT = """\
 You classify a chess student's own explanation of why they played a move. The context is JSON: \
-the move, how it was rated, and the student's `answer`. Return `patterns`: every reasoning \
-pattern the answer shows, from this fixed list only, or an empty list when none clearly applies.
+the move, how it was rated, and the student's `answer`. Return `patterns`: up to 3 \
+reasoning patterns the answer shows, most important first, from this fixed list only, or an \
+empty list when none clearly applies.
 - attack_without_king_safety: going after the opponent while ignoring the safety of their own king
 - ignored_opponent_threat: did not consider, or dismissed, what the opponent was threatening
 - material_greed: grabbed material without checking what it costs
@@ -63,6 +66,7 @@ async def tag_reasoning(
         ).one_or_none()
         if move is None:  # taken back since the answer
             return
+        move_id, move_uci = move.id, move.uci
         request = json.dumps(
             {"move": move.san, "rating": move.classification, "answer": answer},
             separators=(",", ":"),
@@ -83,10 +87,10 @@ async def tag_reasoning(
         return
     with Session(engine) as session:
         game = session.get_one(Game, game_id)
-        still_played = session.scalars(
-            select(Move.id).where(Move.game_id == game_id, Move.ply == ply)
-        ).one_or_none()
-        if still_played is not None:  # not taken back while the model answered
+        current = session.get(Move, move_id)
+        # SQLite reuses freed row ids, so the row must still hold the same move at the same ply.
+        still_played = current is not None and (current.ply, current.uci) == (ply, move_uci)
+        if still_played:  # not taken back while the model answered
             session.add_all(
                 ConceptEvent(
                     player_id=game.player_id,

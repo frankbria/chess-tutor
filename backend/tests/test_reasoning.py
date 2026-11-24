@@ -1,14 +1,16 @@
+from collections.abc import AsyncIterator, Sequence
+
 import pytest
-from pydantic import ValidationError
-from sqlalchemy import select
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 from test_passive_coach import PRICED, DownLanguageModel, Harness, scripted, started
 from test_thought_questions import REPLY, answer, asking
 
-from chess_tutor.coach.llm import LanguageModelError, ModelTier
+from chess_tutor.coach.llm import ChatMessage, LanguageModelError, ModelTier, StructuredReply
 from chess_tutor.coach.reasoning import ReasoningPattern, ReasoningTags, tag_reasoning
 from chess_tutor.coach.summary import SummaryDraft
-from chess_tutor.models import ConceptEvent, ConceptSource, Game, GameSummary
+from chess_tutor.models import ConceptEvent, ConceptSource, Game, GameSummary, Move
 from chess_tutor.settings import Settings
 
 
@@ -29,6 +31,8 @@ def test_the_output_schema_rejects_anything_outside_the_taxonomy() -> None:
         ReasoningTags.model_validate({"patterns": ["bad_vibes"]})
     with pytest.raises(ValidationError):
         ReasoningTags.model_validate({"patterns": ["material_greed"] * 4})
+    with pytest.raises(ValidationError):
+        ReasoningTags.model_validate({"patterns": [], "confidence": 0.9})
     assert ReasoningTags.model_validate({"patterns": []}).patterns == []
     allowed = ReasoningTags.model_json_schema()["$defs"]["ReasoningPattern"]["enum"]
     assert allowed == [pattern.value for pattern in ReasoningPattern]
@@ -100,5 +104,43 @@ async def test_without_a_model_nothing_is_stored(settings: Settings) -> None:
         harness.play(4)
 
         await tag_reasoning(harness.app.state.engine, None, harness.game_id, 7, "a pawn")
+
+        assert reasoning_events(harness) == []
+
+
+class ReplacesTheMoveWhileThinking:
+    """A model whose call lands after a takeback and a different move that reused the row."""
+
+    def __init__(self, engine: Engine, tags: ReasoningTags) -> None:
+        self._engine, self._tags = engine, tags
+
+    async def structured[ParsedModel: BaseModel](
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        messages: Sequence[ChatMessage],
+        schema: type[ParsedModel],
+    ) -> StructuredReply[ParsedModel]:
+        with Session(self._engine) as session:
+            move = session.scalars(select(Move).where(Move.ply == 7)).one()
+            move.uci = "f3g5"  # same row and ply, a different move
+            session.commit()
+        assert isinstance(self._tags, schema)
+        return StructuredReply(self._tags, PRICED)
+
+    def stream_text(self, **_: object) -> AsyncIterator[str]:
+        raise NotImplementedError
+
+
+async def test_tags_for_a_taken_back_move_do_not_attach_to_its_replacement(
+    settings: Settings,
+) -> None:
+    with started(asking(settings), scripted()) as harness:
+        harness.play(4)
+        engine = harness.app.state.engine
+        tags = ReasoningTags(patterns=[ReasoningPattern.MATERIAL_GREED])
+
+        await tag_reasoning(engine, ReplacesTheMoveWhileThinking(engine, tags), 1, 7, "a pawn")
 
         assert reasoning_events(harness) == []
