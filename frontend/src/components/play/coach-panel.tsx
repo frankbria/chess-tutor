@@ -25,6 +25,7 @@ const KIND_STYLE: Record<CoachMessageKind, string> = {
   hint: "border-l-secondary-foreground bg-secondary",
   answer: "border-l-muted-foreground bg-muted",
   skipped: "border-l-muted-foreground bg-muted/50",
+  asked: "border-l-muted-foreground bg-muted",
 };
 
 const KIND_LABEL: Record<CoachMessageKind, string> = {
@@ -33,6 +34,7 @@ const KIND_LABEL: Record<CoachMessageKind, string> = {
   hint: "Hint",
   answer: "Answer",
   skipped: "Skipped",
+  asked: "You asked",
 };
 
 /** "3. Nxe5" for a white ply, "3... Nf6" for black; falls back to the ply when the move is unknown. */

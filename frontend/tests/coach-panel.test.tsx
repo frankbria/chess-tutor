@@ -253,7 +253,10 @@ describe("PlayBoard coach questions", () => {
     const { api, stream } = fakeApi(game());
     render(<PlayBoard gameId={1} api={api} />);
     await screen.findByTestId("board");
-    expect(screen.getByLabelText("Message the coach")).toBeDisabled();
+    expect(screen.getByLabelText("Message the coach")).toHaveAttribute(
+      "placeholder",
+      "Ask the coach…",
+    );
     expect(
       screen.queryByRole("button", { name: "Skip" }),
     ).not.toBeInTheDocument();
@@ -271,24 +274,72 @@ describe("PlayBoard coach questions", () => {
     expect(
       screen.getByText("Question", { selector: "span" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Message the coach")).toBeEnabled();
+    expect(screen.getByLabelText("Message the coach")).toHaveAttribute(
+      "placeholder",
+      "What was your thought?",
+    );
     expect(screen.getByRole("button", { name: "Skip" })).toBeInTheDocument();
+  });
+
+  it("asks the coach a free question when none is open and shows the stored exchange", async () => {
+    const user = userEvent.setup();
+    const asked: CoachMessage = message({
+      ply: 8,
+      role: "player",
+      kind: "asked",
+      text: "What is he threatening?",
+    });
+    let history: CoachMessage[] = [];
+    const answerQuestion = vi.fn(async () => {
+      history = [asked];
+    });
+    const { api } = fakeApi(game(), [], {
+      answerQuestion,
+      getCoachMessages: async () => history,
+    });
+    render(<PlayBoard gameId={1} api={api} />);
+    await user.type(
+      await screen.findByLabelText("Message the coach"),
+      "What is he threatening?",
+    );
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(answerQuestion).toHaveBeenCalledWith(1, "What is he threatening?");
+    expect(
+      await screen.findByText("What is he threatening?", { selector: "p" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("You asked", { selector: "span" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the input closed once the game is over", async () => {
+    const { api } = fakeApi(game({ status: "finished", result: "0-1" }));
+    render(<PlayBoard gameId={1} api={api} />);
+    await screen.findByTestId("board");
+    expect(screen.getByLabelText("Message the coach")).toBeDisabled();
   });
 
   it("refetches the history when the stream reconnects, so a missed question appears", async () => {
     let history: CoachMessage[] = [];
-    const { api, stream } = fakeApi(game(), [], { getCoachMessages: async () => history });
+    const { api, stream } = fakeApi(game(), [], {
+      getCoachMessages: async () => history,
+    });
     render(<PlayBoard gameId={1} api={api} />);
     await screen.findByTestId("board");
-    expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Skip" }),
+    ).not.toBeInTheDocument();
 
     history = [question()]; // published while the stream was down
     act(() => stream().onSnapshot({ fen: START_FEN, status: "active" }));
 
-    expect(await screen.findByRole("button", { name: "Skip" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Skip" }),
+    ).toBeInTheDocument();
   });
 
-  it("sends the answer, shows it, and locks the input until the coach reply arrives", async () => {
+  it("sends the answer, shows it, and closes the question until the coach reply arrives", async () => {
     const user = userEvent.setup();
     const answerQuestion = vi.fn(async () => undefined);
     const { api, stream } = fakeApi(game(), [question()], { answerQuestion });
@@ -303,7 +354,9 @@ describe("PlayBoard coach questions", () => {
     expect(
       await screen.findByText("I wanted a pawn", { selector: "p" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Message the coach")).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: "Skip" }),
+    ).not.toBeInTheDocument();
 
     act(() =>
       stream().onCoachComment({

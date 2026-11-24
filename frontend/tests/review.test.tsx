@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ReviewView } from "@/components/review/review-view";
@@ -73,6 +74,7 @@ function renderReview(overrides: Partial<ReviewApi> = {}) {
     getGame: async () => game,
     getCoachMessages: async () => notes,
     getReview: async () => review,
+    askAboutPosition: async () => ({ text: "d4 was best.", source: "llm" }),
     ...overrides,
   };
   render(<ReviewView gameId={3} api={api} />);
@@ -210,5 +212,44 @@ describe("ReviewView", () => {
     });
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Could not load the review"));
     await act(async () => undefined);
+  });
+
+  it("asks the coach about the shown ply and shows the stored exchange", async () => {
+    const user = userEvent.setup();
+    let stored = notes;
+    const askAboutPosition = vi.fn(async () => {
+      stored = [
+        ...notes,
+        { ply: 5, role: "player", kind: "asked", text: "What was best?", classification: null, phase: "opening" },
+        { ply: 5, role: "coach", kind: "answer", text: "d4 was best.", classification: null, phase: "opening" },
+      ];
+      return { text: "d4 was best.", source: "llm" };
+    });
+    renderReview({ askAboutPosition, getCoachMessages: async () => stored });
+    await screen.findByTestId("board");
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+
+    await user.type(screen.getByLabelText("Ask the coach"), "What was best?");
+    await user.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(askAboutPosition).toHaveBeenCalledWith(3, 5, "What was best?");
+    expect(await screen.findByText("d4 was best.")).toBeInTheDocument();
+    expect(screen.getByText("You asked:")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ask the coach")).toHaveValue("");
+  });
+
+  it("shows why a question could not be answered and keeps the draft", async () => {
+    const user = userEvent.setup();
+    const askAboutPosition = vi.fn(async () => {
+      throw new ApiError(503, "the coach is not running");
+    });
+    renderReview({ askAboutPosition });
+    await screen.findByTestId("board");
+
+    await user.type(screen.getByLabelText("Ask the coach"), "Why?");
+    await user.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("the coach is not running");
+    expect(screen.getByLabelText("Ask the coach")).toHaveValue("Why?");
   });
 });

@@ -27,10 +27,14 @@ export interface Review {
 /** What the review screen needs from the backend; tests supply their own implementation. */
 export interface ReviewApi extends Pick<GameApi, "getGame" | "getCoachMessages"> {
   getReview(id: number): Promise<Review>;
+  /** Asks the coach about the position after `ply`; best moves may be revealed in the answer. */
+  askAboutPosition(id: number, ply: number, text: string): Promise<{ text: string; source: string }>;
 }
 
 export const httpReviewApi: ReviewApi = {
   getGame: httpGameApi.getGame,
   getCoachMessages: httpGameApi.getCoachMessages,
   getReview: (id) => request<Review>(`/games/${id}/review`, "GET"),
+  askAboutPosition: (id, ply, text) =>
+    request<{ text: string; source: string }>(`/games/${id}/review/questions`, "POST", { ply, text }),
 };
