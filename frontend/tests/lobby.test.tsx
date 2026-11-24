@@ -8,7 +8,7 @@ import { defaultElo, labelFor, MODES } from "@/components/lobby/game-options";
 import { NewGameDialog } from "@/components/lobby/new-game-dialog";
 import { SettingsApiProvider } from "@/components/settings/settings-api-context";
 import { ResumeList } from "@/components/lobby/resume-list";
-import type { SettingsApi } from "@/lib/settings-api";
+import type { SettingsApi, SettingsState } from "@/lib/settings-api";
 import { ApiError, type GameState, type LobbyApi, type NewGame } from "@/lib/game-api";
 
 const push = vi.fn();
@@ -255,5 +255,30 @@ describe("NewGameDialog default mode", () => {
 
     await screen.findByText("1350");
     expect(screen.getByRole("radio", { name: /Regular/ })).toBeChecked();
+  });
+
+  it("does not override a mode the user already chose", async () => {
+    let resolveSettings: (state: SettingsState) => void = () => undefined;
+    renderWith(
+      settingsApi(() => new Promise<SettingsState>((resolve) => (resolveSettings = resolve))),
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Play" }));
+    await user.click(screen.getByRole("radio", { name: /Passive/ }));
+
+    resolveSettings({
+      preferences: {
+        coach_verbosity: "normal",
+        default_mode: "active",
+        maia_model: "5m",
+        monthly_cost_ceiling: 10,
+      },
+      monthly_cost: 0,
+      budget_alert: false,
+      recent_games: [],
+    });
+
+    await screen.findByText("1350");
+    await waitFor(() => expect(screen.getByRole("radio", { name: /Passive/ })).toBeChecked());
   });
 });

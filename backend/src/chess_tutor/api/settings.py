@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
@@ -46,15 +46,21 @@ def load_preferences(session: Session, maia_model: MaiaModel) -> Preferences:
         select(PlayerSetting).where(PlayerSetting.player_id == DEFAULT_PLAYER_ID)
     )
     stored = {row.key: row.value for row in rows}
-    return Preferences.model_validate(
-        {
-            "coach_verbosity": "normal",
-            "default_mode": GameMode.PASSIVE,
-            "maia_model": maia_model,
-            "monthly_cost_ceiling": DEFAULT_MONTHLY_COST_CEILING,
-            **stored,
-        }
-    )
+    values: dict[str, object] = {
+        "coach_verbosity": "normal",
+        "default_mode": GameMode.PASSIVE,
+        "maia_model": maia_model,
+        "monthly_cost_ceiling": DEFAULT_MONTHLY_COST_CEILING,
+    }
+    for key, value in stored.items():
+        if key not in values:
+            continue
+        try:
+            Preferences.model_validate({**values, key: value})
+        except ValidationError:
+            continue  # a stale or hand-edited row must not lock the user out of the form
+        values[key] = value
+    return Preferences.model_validate(values)
 
 
 def stored_maia_model(engine: Engine, fallback: MaiaModel) -> MaiaModel:

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -28,6 +28,7 @@ export function NewGameDialog() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<GameMode>("regular");
+  const modeChosen = useRef(false);
   const [color, setColor] = useState<ColorChoice>("random");
   const [elo, setElo] = useState<number | null>(null);
   const [ratingLoaded, setRatingLoaded] = useState(false);
@@ -54,7 +55,9 @@ export function NewGameDialog() {
     let current = true;
     settingsApi
       .getSettings()
-      .then((state) => current && setMode(state.preferences.default_mode))
+      .then((state) => {
+        if (current && !modeChosen.current) setMode(state.preferences.default_mode);
+      })
       .catch(() => undefined); // keep the built-in default when settings are unavailable
     return () => {
       current = false;
@@ -99,7 +102,10 @@ export function NewGameDialog() {
                     name="mode"
                     value={option.value}
                     checked={mode === option.value}
-                    onChange={() => setMode(option.value)}
+                    onChange={() => {
+                      modeChosen.current = true;
+                      setMode(option.value);
+                    }}
                     className="mt-1 accent-primary"
                   />
                   <span className="grid">

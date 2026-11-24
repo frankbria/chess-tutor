@@ -1,11 +1,11 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from chess_tutor.main import create_app
-from chess_tutor.models import Game, GameMode, GameStatus, PlayerColor
+from chess_tutor.models import Game, GameMode, GameStatus, PlayerColor, PlayerSetting
 from chess_tutor.settings import Settings
 
 
@@ -94,7 +94,7 @@ def test_put_rejects_invalid_values(client: TestClient, change: dict[str, object
 
 def test_cost_counts_this_month_only_and_alerts_at_eighty_percent(settings: Settings) -> None:
     now = datetime.now(UTC)
-    last_month = now.replace(year=now.year - 1)
+    last_month = now.replace(day=1) - timedelta(days=1)
     seed_games(settings, [(4.0, now), (4.0, now), (50.0, last_month)])
 
     with TestClient(create_app(settings)) as client:
@@ -134,3 +134,24 @@ def test_stored_maia_model_is_what_the_app_starts_with(settings: Settings) -> No
     restarted = create_app(settings)
     with TestClient(restarted):
         assert restarted.state.settings.maia_model == "23m"
+
+
+def test_bad_stored_values_fall_back_per_field(settings: Settings) -> None:
+    app = create_app(settings)
+    with TestClient(app) as client:
+        with Session(app.state.engine) as session:
+            session.add_all(
+                [
+                    PlayerSetting(player_id=1, key="default_mode", value="blitz"),
+                    PlayerSetting(player_id=1, key="coach_verbosity", value="brief"),
+                    PlayerSetting(player_id=1, key="retired_option", value="x"),
+                ]
+            )
+            session.commit()
+
+        response = client.get("/settings")
+
+    assert response.status_code == 200
+    preferences = response.json()["preferences"]
+    assert preferences["default_mode"] == "passive"
+    assert preferences["coach_verbosity"] == "brief"
