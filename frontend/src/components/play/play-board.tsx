@@ -49,6 +49,21 @@ const errorMessage = (error: unknown) =>
     ? error.message
     : "Could not reach the game server. Try again.";
 
+/** The coach's latest question, unless the player has already answered or skipped it. */
+function openQuestion(messages: CoachMessage[]) {
+  const index = messages.findLastIndex(
+    (message) => message.kind === "question",
+  );
+  if (index < 0) return undefined;
+  const question = messages[index];
+  const closed = messages
+    .slice(index + 1)
+    .some(
+      (message) => message.role === "player" && message.ply === question.ply,
+    );
+  return closed ? undefined : question;
+}
+
 export function PlayBoard({
   gameId,
   api = httpGameApi,
@@ -96,17 +111,42 @@ export function PlayBoard({
     setSyncToken((token) => token + 1);
   }, [api, gameId, accept]);
 
+  const hasCoachRef = useRef(false);
+  useEffect(() => {
+    hasCoachRef.current = hasCoach;
+  }, [hasCoach]);
+
+  const loadHistory = useCallback(
+    () =>
+      api.getCoachMessages(gameId).then(
+        (history) =>
+          setCoachMessages((known) => [
+            ...history,
+            ...withoutRepeats(history, known),
+          ]),
+        (error: unknown) => setMessage(errorMessage(error)),
+      ),
+    [api, gameId],
+  );
+
   useEffect(() => {
     api
       .getGame(gameId)
       .then(accept, (error: unknown) => setLoadError(errorMessage(error)));
     return api.subscribe(gameId, {
-      onCoachComment: ({ ply, text, classification, phase, hint_level }) => {
+      onCoachComment: ({
+        ply,
+        text,
+        classification,
+        phase,
+        hint_level,
+        kind: sent,
+      }) => {
         // Active mode's hints and remarks are stored as hints, so show them as hints live too.
         const kind =
           classification === "hint" || classification === "remark"
             ? "hint"
-            : "comment";
+            : (sent ?? "comment");
         const comment: CoachMessage = {
           ply,
           role: "coach",
@@ -124,6 +164,8 @@ export function PlayBoard({
       onSnapshot: () => {
         setConnectionLost(false);
         void resync();
+        // Messages published while the stream was down are only in the stored history.
+        if (hasCoachRef.current) void loadHistory();
       },
       onOpponentMove: ({ clock }) => {
         setConnectionLost(false);
@@ -138,19 +180,11 @@ export function PlayBoard({
       },
       onConnectionLost: () => setConnectionLost(true),
     });
-  }, [api, gameId, accept, resync, loadAttempt]);
+  }, [api, gameId, accept, resync, loadHistory, loadAttempt]);
 
   useEffect(() => {
-    if (!hasCoach) return;
-    api.getCoachMessages(gameId).then(
-      (history) =>
-        setCoachMessages((known) => [
-          ...history,
-          ...withoutRepeats(history, known),
-        ]),
-      (error: unknown) => setMessage(errorMessage(error)),
-    );
-  }, [api, gameId, hasCoach]);
+    if (hasCoach) void loadHistory();
+  }, [hasCoach, loadHistory]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -217,6 +251,25 @@ export function PlayBoard({
       await resync();
     } finally {
       setThinking(false);
+    }
+  };
+
+  const question =
+    game?.status === "active" ? openQuestion(coachMessages) : undefined;
+  const closeQuestion = async (kind: "answer" | "skipped", text: string) => {
+    if (!question) return;
+    setMessage(null);
+    try {
+      await (kind === "answer"
+        ? api.answerQuestion(gameId, text)
+        : api.skipQuestion(gameId));
+      const closing: CoachMessage = { ...question, role: "player", kind, text };
+      setCoachMessages((known) => [
+        ...known,
+        ...withoutRepeats(known, [closing]),
+      ]);
+    } catch (error) {
+      setMessage(errorMessage(error));
     }
   };
 
@@ -407,7 +460,20 @@ export function PlayBoard({
           </p>
         )}
         <MoveList moves={game.moves} />
-        {hasCoach && <CoachPanel messages={coachMessages} moves={game.moves} />}
+        {hasCoach && (
+          <CoachPanel
+            messages={coachMessages}
+            moves={game.moves}
+            onSend={
+              question
+                ? (text) => void closeQuestion("answer", text)
+                : undefined
+            }
+            onSkip={
+              question ? () => void closeQuestion("skipped", "") : undefined
+            }
+          />
+        )}
         {game.status === "active" && game.mode === "passive" && (
           <Button
             variant="outline"
