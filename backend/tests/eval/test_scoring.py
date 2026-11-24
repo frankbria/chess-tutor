@@ -1,8 +1,12 @@
+import json
+import re
+
 import chess
 import pytest
 from eval_scoring import (
     CaseScore,
     EvalCase,
+    build_context,
     concept_mentioned,
     forbidden_claims,
     load_cases,
@@ -10,13 +14,16 @@ from eval_scoring import (
     summarize,
 )
 
+from chess_tutor.analysis.move_delta import move_delta
 from chess_tutor.coach.grounding import GroundedReply, ReplySource
 from chess_tutor.coach.llm import Usage
-from chess_tutor.coach.prompt import CoachContext, CoachEvent
+from chess_tutor.coach.prompt import CoachContext, CoachEvent, build_coach_request
+from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.facts.models import FactType
 from chess_tutor.facts.packet import build_fact_packet
 from chess_tutor.models import GameMode
 from chess_tutor.openings.phase import GamePhase
+from chess_tutor.settings import Settings
 
 FORK_POSITION = "r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1"
 
@@ -186,3 +193,36 @@ def test_the_summary_reports_rates_cost_and_failing_cases() -> None:
     assert "passes validator: 2/2 (100%)" in summary
     assert "total cost: $0.5000" in summary and "total time: 4s" in summary
     assert "FAIL b: grounded on first attempt" in summary and "FAIL a" not in summary
+
+
+def test_a_forbid_pattern_matches_whole_words_only() -> None:
+    case = next(case for case in load_cases() if case.id == "hint3-opening-missed-mate")
+    pattern = case.forbid[0]
+
+    assert re.search(pattern, "That is checkmate.", re.IGNORECASE)
+    assert re.search(pattern, "There is a mate.", re.IGNORECASE)
+    assert not re.search(pattern, "You are ahead in material.", re.IGNORECASE)
+    assert not forbidden_claims("You are ahead in material.", context(pre_lock_in=False), [pattern])
+
+
+def test_a_disambiguated_move_is_not_read_as_a_bare_square() -> None:
+    assert "unknown_square:d7" not in forbidden_claims("Nbd7 is fine.", context(), [])
+
+
+@pytest.mark.parametrize("case_id", ["hint3-opening-missed-mate", "passive-middlegame-allows-fork"])
+async def test_a_real_case_builds_a_context_and_the_expected_request_payload(case_id: str) -> None:
+    case = next(case for case in load_cases() if case.id == case_id)
+    board = chess.Board(case.fen)
+    async with StockfishPool(Settings(_env_file=None).stockfish_path, 1) as pool:
+        delta = await move_delta(board, board.parse_san(case.move), pool)
+
+    context = build_context(case, delta)
+    system, messages = build_coach_request(context)
+    payload = json.loads(messages[0].content)
+
+    assert system and context.move_san == case.move and context.fact_packet.fen == board.fen()
+    assert payload["event"] == case.event.value and payload["mode"] == case.mode.value
+    assert payload["locked_in"] is (not case.active_pre_lock_in)
+    assert payload["facts"] and set(payload["allowed_references"]) == {"squares", "moves"}
+    assert ("best_move" in payload) is (not case.active_pre_lock_in)
+    assert payload.get("hint_level") == case.hint_level

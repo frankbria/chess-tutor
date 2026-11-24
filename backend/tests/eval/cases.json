@@ -177,7 +177,7 @@
       "allows"
     ],
     "forbid": [
-      "mate"
+      "\\b(?:check)?mate\\b"
     ]
   },
   {
@@ -192,7 +192,7 @@
       "opponent|next|threat|reply|respond|think|ask|look"
     ],
     "forbid": [
-      "fork"
+      "\\bforks?\\b"
     ]
   },
   {
@@ -415,7 +415,7 @@
       "opponent|piece|think|look|ask|check"
     ],
     "forbid": [
-      "fork"
+      "\\bforks?\\b"
     ]
   },
   {

@@ -74,6 +74,9 @@ def build_context(case: EvalCase, delta: MoveDelta) -> CoachContext:
     )
 
 
+_FACT_TYPE_VALUES = frozenset(fact_type.value for fact_type in FactType)
+
+
 def concept_mentioned(expect_any: list[str], text: str, cited_types: set[FactType]) -> bool:
     """Loose match: any expectation that is a fact type must be cited, otherwise it is a regex."""
     if not expect_any:
@@ -82,7 +85,7 @@ def concept_mentioned(expect_any: list[str], text: str, cited_types: set[FactTyp
     return any(
         (
             expected in fact_types
-            if expected in FactType
+            if expected in _FACT_TYPE_VALUES
             else re.search(expected, text, re.IGNORECASE) is not None
         )
         for expected in expect_any
