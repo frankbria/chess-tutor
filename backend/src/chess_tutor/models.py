@@ -132,6 +132,7 @@ class Game(Base):
     clock_started_ms: Mapped[int | None] = mapped_column(default=None)  # epoch ms, side to move
     ended_on_time: Mapped[bool] = mapped_column(default=False)
     llm_cost: Mapped[float] = mapped_column(default=0.0)  # US dollars spent on the coach
+    takeback_count: Mapped[int] = mapped_column(default=0)
 
 
 class Move(Base):
@@ -232,6 +233,21 @@ class CoachMessage(Base):
     fact_ids: Mapped[str]  # JSON list
     source: Mapped[CoachMessageSource] = mapped_column(string_enum(CoachMessageSource))
     concepts: Mapped[str]  # JSON list of concept values
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class GameSummary(Base):
+    __tablename__ = "game_summary"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), unique=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("player.id"), index=True)
+    summary: Mapped[str]
+    key_moments: Mapped[str]  # JSON list of short sentences
+    concepts: Mapped[str]  # JSON list of concept values tagged in the game
+    source: Mapped[CoachMessageSource] = mapped_column(string_enum(CoachMessageSource))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

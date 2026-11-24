@@ -16,6 +16,8 @@ from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.clock import ClockState
 from chess_tutor.models import (
+    CoachMessage,
+    ConceptEvent,
     Game,
     GameMode,
     GameResult,
@@ -37,6 +39,9 @@ OPPONENT_ENGINE_NAME = "maia3"
 class PlayerMoveObserver(Protocol):
     def player_moved(self, game: Game, ply: int) -> None:
         """Called under the move lock right after the player's move is committed."""
+
+    def game_finished(self, game_id: int) -> None:
+        """Called under the move lock right after a game's end is flushed, before its commit."""
 
     def is_coaching(self, game_id: int) -> bool:
         """True while work on the game's moves is pending; it then refreshes concepts itself."""
@@ -94,6 +99,14 @@ ELO_STEP = 50
 
 
 class NotPlayersTurnError(GameError):
+    pass
+
+
+class TakebackNotAllowedError(GameError):
+    pass
+
+
+class NothingToTakeBackError(GameError):
     pass
 
 
@@ -329,6 +342,35 @@ class GameService:
             session.commit()
             return game
 
+    async def takeback(self, game_id: int) -> Game:
+        """Undo the player's last move and the reply to it; Passive tutor games only.
+
+        The moves are deleted with everything stored against them, so a taken-back move can never
+        count as played. The count lowers the game's rating weight when it finishes.
+        """
+        async with self._move_lock:
+            with Session(self._engine, expire_on_commit=False) as session:
+                game = self._active_game(session, game_id)
+                if game.mode is not GameMode.PASSIVE:
+                    raise TakebackNotAllowedError("takebacks are only allowed in Passive mode")
+                player_is_white = game.player_color is PlayerColor.WHITE
+                player_plies = [
+                    stored.ply
+                    for stored in self._moves(session, game_id)
+                    if (stored.ply % 2 == 1) == player_is_white
+                ]
+                if not player_plies:
+                    raise NothingToTakeBackError("the player has not moved yet")
+                for table in (Move, ConceptEvent, CoachMessage):
+                    session.execute(
+                        delete(table).where(table.game_id == game_id, table.ply >= player_plies[-1])
+                    )
+                game.takeback_count += 1
+                opening = lookup_opening(self._board(session, game_id))
+                game.opening_eco, game.opening_name = opening if opening else (None, None)
+                session.commit()
+                return game
+
     def resign(self, game_id: int) -> Game:
         with Session(self._engine, expire_on_commit=False) as session:
             game = self._active_game(session, game_id)
@@ -487,6 +529,8 @@ class GameService:
             refresh_concept_states(
                 session, game.player_id, game.id, game.ended_at, self._thresholds.concept_state
             )
+        if self._observer is not None:
+            self._observer.game_finished(game.id)
 
     def _render_pgn(self, session: Session, game: Game) -> str:
         player = session.get_one(Player, game.player_id)
