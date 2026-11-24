@@ -18,7 +18,12 @@ from test_passive_coach import (
 from test_thought_questions import REPLY, answer, asking
 
 from chess_tutor.coach.llm import ChatMessage, LanguageModelError, ModelTier, StructuredReply
-from chess_tutor.coach.reasoning import ReasoningPattern, ReasoningTags, tag_reasoning
+from chess_tutor.coach.reasoning import (
+    SYSTEM_PROMPT,
+    ReasoningPattern,
+    ReasoningTags,
+    tag_reasoning,
+)
 from chess_tutor.coach.summary import SummaryDraft
 from chess_tutor.models import ConceptEvent, ConceptSource, Game, GameSummary, Move
 from chess_tutor.settings import Settings
@@ -62,9 +67,10 @@ def test_an_answer_is_tagged_with_its_patterns_after_the_reply(settings: Setting
         assert answer(harness, "I just wanted the free pawn.") == 202
 
         assert reasoning_events(harness) == [(7, "material_greed"), (7, "ignored_opponent_threat")]
-        request = model.calls[-1].messages[0].content
+        [tagging] = [call for call in model.calls if call.system == SYSTEM_PROMPT]
+        request = tagging.messages[0].content
         assert "I just wanted the free pawn." in request and "Nxe5" in request
-        assert model.calls[-1].tier is ModelTier.CHEAP
+        assert tagging.tier is ModelTier.CHEAP
         with Session(harness.app.state.engine) as session:
             assert session.get_one(Game, harness.game_id).llm_cost == pytest.approx(2 * PRICED.cost)
 
