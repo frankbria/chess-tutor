@@ -25,6 +25,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("game_id", sa.Integer(), sa.ForeignKey("game.id"), nullable=False, unique=True),
         sa.Column("ply", sa.Integer(), nullable=False),
+        sa.Column("san", sa.String(), nullable=False),
         sa.Column("uci", sa.String(), nullable=True),
         sa.Column("rethinks", sa.Integer(), nullable=False),
         sa.Column("win_probability_before", sa.Float(), nullable=True),

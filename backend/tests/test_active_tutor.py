@@ -1,5 +1,7 @@
-from collections.abc import Iterator
+from collections.abc import Awaitable, Iterator
 
+import chess
+import chess.engine
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -7,6 +9,8 @@ from scripted_opponent import ScriptedOpponent
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from chess_tutor.coach.active import ActiveTutor
+from chess_tutor.engines.stockfish import AnalysedLine, Budget, StockfishPool
 from chess_tutor.main import create_app
 from chess_tutor.models import Move, MoveProposal
 from chess_tutor.settings import Settings
@@ -184,3 +188,67 @@ def test_a_plain_move_in_an_active_game_is_refused(app: FastAPI, api: TestClient
 
     assert response.status_code == 409
     assert api.get(f"/games/{game_id}").json()["moves"] == []
+
+
+class BrokenPool(StockfishPool):
+    async def analyse(
+        self, board: chess.Board, budget: Budget | chess.engine.Limit, multipv: int = 1
+    ) -> list[AnalysedLine]:
+        raise RuntimeError("engine down")
+
+
+def test_a_failed_analysis_leaves_no_proposal_behind(app: FastAPI, api: TestClient) -> None:
+    game_id = create(api)
+    working = app.state.active_tutor
+    app.state.active_tutor = ActiveTutor(app.state.game_service, BrokenPool("unused", 1))
+    with pytest.raises(RuntimeError):
+        api.post(f"/games/{game_id}/moves", json={"uci": "e2e4", "propose": True})
+    app.state.active_tutor = working
+
+    assert propose(api, game_id, "e2e4")["uci"] == "e2e4"
+
+
+def test_the_proposal_carries_its_san_from_when_it_was_stored(
+    app: FastAPI, api: TestClient
+) -> None:
+    game_id = create(api)
+
+    proposal = asyncio_run(api, app.state.game_service.propose_move(game_id, "g1f3"))
+
+    assert proposal.san == "Nf3"
+
+
+@pytest.mark.parametrize("action", ["lock", "rethink"])
+def test_lock_and_rethink_are_for_active_games(api: TestClient, action: str) -> None:
+    game_id = create(api, "passive")
+
+    response = api.post(f"/games/{game_id}/moves/{action}")
+
+    assert response.status_code == 409 and "Active" in response.json()["detail"]
+
+
+def test_a_finished_game_drops_its_pending_proposal(app: FastAPI, api: TestClient) -> None:
+    game_id = create(api)
+    propose(api, game_id, "e2e4")
+
+    api.post(f"/games/{game_id}/resign")
+
+    with Session(app.state.engine) as session:
+        assert session.scalars(select(MoveProposal)).all() == []
+
+
+def test_the_rethink_response_is_documented(api: TestClient) -> None:
+    schema = api.get("/openapi.json").json()
+    operation = schema["paths"]["/games/{game_id}/moves/rethink"]["post"]
+    ref = operation["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
+
+    assert ref.endswith("RethinkResponse")
+
+
+def asyncio_run[Result](api: TestClient, awaitable: Awaitable[Result]) -> Result:
+    assert api.portal is not None
+
+    async def await_it() -> Result:
+        return await awaitable
+
+    return api.portal.call(await_it)

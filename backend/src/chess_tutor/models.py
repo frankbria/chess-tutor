@@ -160,6 +160,7 @@ class MoveProposal(Base):
     id: Mapped[int] = mapped_column(primary_key=True)  # the analysis id handed to the client
     game_id: Mapped[int] = mapped_column(ForeignKey("game.id"), unique=True)
     ply: Mapped[int]
+    san: Mapped[str] = mapped_column(default="")  # of `uci`, taken when it was proposed
     uci: Mapped[str | None] = mapped_column(default=None)  # None between a rethink and the next
     rethinks: Mapped[int] = mapped_column(default=0)
     win_probability_before: Mapped[float | None] = mapped_column(default=None)

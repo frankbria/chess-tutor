@@ -151,6 +151,10 @@ class ProposalResponse(BaseModel):
     win_probability_after: float | None
 
 
+class RethinkResponse(BaseModel):
+    rethinks: int = Field(description="Proposals discarded so far for this move")
+
+
 class GameResponse(BaseModel):
     id: int
     mode: GameMode
@@ -292,12 +296,11 @@ async def play_move(
 ) -> GameResponse | ProposalResponse:
     if body.propose:
         proposal = await tutor.propose(game_id, body.uci)
-        board = service.get_board(game_id)
         return ProposalResponse(
             analysis_id=proposal.id,
             ply=proposal.ply,
             uci=body.uci,
-            san=board.san(chess.Move.from_uci(body.uci)),
+            san=proposal.san,
             rethinks=proposal.rethinks,
             win_probability_before=proposal.win_probability_before,
             win_probability_after=proposal.win_probability_after,
@@ -314,8 +317,8 @@ async def lock_in(game_id: int, service: Service, events: Events, coach: Coach) 
 
 
 @router.post("/{game_id}/moves/rethink")
-async def rethink(game_id: int, service: Service) -> dict[str, int]:
-    return {"rethinks": await service.rethink(game_id)}
+async def rethink(game_id: int, service: Service) -> RethinkResponse:
+    return RethinkResponse(rethinks=await service.rethink(game_id))
 
 
 @router.post("/{game_id}/resign")

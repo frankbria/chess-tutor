@@ -19,9 +19,12 @@ class ActiveTutor:
 
     async def propose(self, game_id: int, uci: str) -> MoveProposal:
         proposal = await self._service.propose_move(game_id, uci)
-        delta = await move_delta(
-            self._service.get_board(game_id), chess.Move.from_uci(uci), self._pool
-        )
+        try:
+            board = self._service.get_board(game_id)
+            delta = await move_delta(board, chess.Move.from_uci(uci), self._pool)
+        except BaseException:  # incl. cancellation: a stuck proposal would answer every retry 409
+            self._service.withdraw_proposal(proposal.id, uci)
+            raise
         self._service.record_proposal_analysis(
             proposal.id, uci, delta.win_probability_before, delta.win_probability_after
         )

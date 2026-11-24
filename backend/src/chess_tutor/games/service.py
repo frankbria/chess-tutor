@@ -8,7 +8,7 @@ from typing import Protocol
 
 import chess
 import chess.pgn
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, delete, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.concepts.state import refresh_concept_states
@@ -194,9 +194,11 @@ class GameService:
                     raise NotPlayersTurnError("it is the opponent's turn")
                 proposed_attempts = 0
                 if uci is None:
-                    proposal = self._pending_proposal(session, game_id, len(board.move_stack) + 1)
-                    assert proposal.uci is not None
-                    uci, proposed_attempts = proposal.uci, proposal.rethinks
+                    self._require_active_mode(game)
+                    proposal, uci = self._pending_proposal(
+                        session, game_id, len(board.move_stack) + 1
+                    )
+                    proposed_attempts = proposal.rethinks
                     session.delete(proposal)
                 move = self._parse_legal_move(board, uci)
                 plies_before = len(board.move_stack)
@@ -211,20 +213,21 @@ class GameService:
         async with self._move_lock:
             with Session(self._engine, expire_on_commit=False) as session:
                 game = self._active_game(session, game_id)
-                if game.mode is not GameMode.ACTIVE:
-                    raise WrongModeError("only Active tutor games take proposed moves")
+                self._require_active_mode(game)
                 board = self._board(session, game_id)
                 if board.turn != chess_color(game.player_color):
                     raise NotPlayersTurnError("it is the opponent's turn")
-                self._parse_legal_move(board, uci)
+                move = self._parse_legal_move(board, uci)
                 ply = len(board.move_stack) + 1
                 proposal = self._proposal_row(session, game_id)
                 if proposal is None:
-                    proposal = MoveProposal(game_id=game_id, ply=ply, rethinks=0)
+                    proposal = MoveProposal(
+                        game_id=game_id, ply=ply, rethinks=0, san=board.san(move)
+                    )
                     session.add(proposal)
                 elif proposal.uci is not None:
                     raise ProposalPendingError("rethink the proposed move before proposing again")
-                proposal.uci = uci
+                proposal.uci, proposal.san = uci, board.san(move)
                 session.commit()
                 return proposal
 
@@ -233,8 +236,9 @@ class GameService:
         async with self._move_lock:
             with Session(self._engine) as session:
                 game = self._active_game(session, game_id)
+                self._require_active_mode(game)
                 ply = len(self._board(session, game_id).move_stack) + 1
-                proposal = self._pending_proposal(session, game.id, ply)
+                proposal, _ = self._pending_proposal(session, game.id, ply)
                 proposal.uci = None
                 proposal.win_probability_before = proposal.win_probability_after = None
                 proposal.rethinks += 1
@@ -257,14 +261,28 @@ class GameService:
             proposal.win_probability_after = win_probability_after
             session.commit()
 
+    def withdraw_proposal(self, proposal_id: int, uci: str) -> None:
+        """Back out a proposal whose analysis failed, keeping the rethink count."""
+        with Session(self._engine) as session:
+            proposal = session.get(MoveProposal, proposal_id)
+            if proposal is not None and proposal.uci == uci:
+                proposal.uci = None
+                session.commit()
+
+    def _require_active_mode(self, game: Game) -> None:
+        if game.mode is not GameMode.ACTIVE:
+            raise WrongModeError("only Active tutor games take proposed moves")
+
     def _proposal_row(self, session: Session, game_id: int) -> MoveProposal | None:
         return session.scalars(select(MoveProposal).where(MoveProposal.game_id == game_id)).first()
 
-    def _pending_proposal(self, session: Session, game_id: int, ply: int) -> MoveProposal:
+    def _pending_proposal(
+        self, session: Session, game_id: int, ply: int
+    ) -> tuple[MoveProposal, str]:
         proposal = self._proposal_row(session, game_id)
         if proposal is None or proposal.uci is None or proposal.ply != ply:
             raise NoProposalError("there is no proposed move")
-        return proposal
+        return proposal, proposal.uci
 
     async def play_opponent_move(self, game_id: int) -> Game:
         """Play the opponent's move if it is due; call again after an OpponentUnavailableError."""
@@ -448,6 +466,7 @@ class GameService:
     ) -> None:
         session.flush()
         game.status = GameStatus.FINISHED
+        session.execute(delete(MoveProposal).where(MoveProposal.game_id == game.id))
         game.ended_on_time = on_time
         game.result = result
         game.ended_at = datetime.now(UTC)
