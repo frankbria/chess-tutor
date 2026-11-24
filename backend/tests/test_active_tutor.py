@@ -252,3 +252,22 @@ def asyncio_run[Result](api: TestClient, awaitable: Awaitable[Result]) -> Result
         return await awaitable
 
     return api.portal.call(await_it)
+
+
+def test_the_pending_proposal_can_be_read_back_until_it_is_rethought(api: TestClient) -> None:
+    game_id = create(api)
+    assert api.get(f"/games/{game_id}/moves/proposal").json() is None
+
+    proposed = propose(api, game_id, "e2e4")
+    pending = api.get(f"/games/{game_id}/moves/proposal").json()
+    assert pending == proposed
+
+    api.post(f"/games/{game_id}/moves/rethink")
+    assert api.get(f"/games/{game_id}/moves/proposal").json() is None
+
+
+def test_the_pending_proposal_is_gone_once_locked_in(api: TestClient) -> None:
+    game_id = create(api)
+    propose(api, game_id, "d2d4")
+    api.post(f"/games/{game_id}/moves/lock")
+    assert api.get(f"/games/{game_id}/moves/proposal").json() is None

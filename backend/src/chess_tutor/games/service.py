@@ -296,6 +296,13 @@ class GameService:
         if game.mode is not GameMode.ACTIVE:
             raise WrongModeError("only Active tutor games take proposed moves")
 
+    def pending_proposal(self, game_id: int) -> MoveProposal | None:
+        """The proposed move awaiting Rethink or Lock in, so a reloaded screen can resume it."""
+        self.get_game(game_id)
+        with Session(self._engine) as session:
+            proposal = self._proposal_row(session, game_id)
+            return proposal if proposal is not None and proposal.uci is not None else None
+
     def _proposal_row(self, session: Session, game_id: int) -> MoveProposal | None:
         return session.scalars(select(MoveProposal).where(MoveProposal.game_id == game_id)).first()
 
