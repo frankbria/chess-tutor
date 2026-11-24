@@ -24,6 +24,14 @@ class NoPendingQuestionError(GameError):
     pass
 
 
+class CoachUnavailableError(GameError):
+    pass
+
+
+class NoSuchPlyError(GameError):
+    pass
+
+
 def player_move_number(ply: int, color: PlayerColor) -> int:
     return (ply + 1) // 2 if color is PlayerColor.WHITE else ply // 2
 

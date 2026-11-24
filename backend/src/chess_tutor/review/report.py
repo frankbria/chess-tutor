@@ -128,14 +128,10 @@ def _reasoning(messages: list[CoachMessage]) -> list[ReasoningExchange]:
     for index, message in enumerate(messages):
         if message.role is not CoachRole.PLAYER or message.kind is not CoachMessageKind.ANSWER:
             continue
-        reply = next(
-            (
-                later.text
-                for later in messages[index + 1 :]
-                if later.role is CoachRole.COACH and later.ply == message.ply
-            ),
-            None,
-        )
+        later_messages = [later for later in messages[index + 1 :] if later.ply == message.ply]
+        first = next(iter(later_messages), None)
+        # A later player message (a review question) ends the exchange: its reply is not ours.
+        reply = first.text if first is not None and first.role is CoachRole.COACH else None
         exchanges.append(ReasoningExchange(message.ply, message.text, reply))
     return exchanges
 

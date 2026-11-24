@@ -86,7 +86,7 @@ class CoachContext(BaseModel):
     active_pre_lock_in: bool
     phase: GamePhase
     event: CoachEvent
-    move_san: str
+    move_san: str = ""  # empty when the question is about the position, not a move
     fact_packet: FactPacket
     move_delta_facts: list[Fact] = Field(default_factory=list)
     best_move_san: str | None = None

@@ -2,7 +2,7 @@
 
 import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent } from "react";
 
 import { Chessboard } from "@/components/play/chessboard";
 import { ClassificationBadge, CLASSIFICATION_STYLE } from "@/components/play/classification-badge";
@@ -28,6 +28,9 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
   const [error, setError] = useState<string | null>(null);
   const [ply, setPly] = useState(0);
   const [summaryRetries, setSummaryRetries] = useState(0);
+  const [draft, setDraft] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
   const swipeStart = useRef<number | null>(null);
   const totalPlies = data?.game.moves.length ?? 0;
 
@@ -67,7 +70,7 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
     };
     const onKey = (event: KeyboardEvent) => {
       const target = keys[event.key];
-      if (!target) return;
+      if (!target || event.target instanceof HTMLInputElement) return;
       event.preventDefault();
       setPly((from) => Math.min(totalPlies, Math.max(0, target(from))));
     };
@@ -91,6 +94,24 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
   const moment = review.key_moments.find((candidate) => candidate.ply === ply);
   const notesHere = notes.filter((note) => note.ply === ply);
   const classification = moment?.classification ?? notesHere.find((note) => note.classification)?.classification;
+
+  const ask = async (event: FormEvent) => {
+    event.preventDefault();
+    const text = draft.trim();
+    if (!text || asking) return;
+    setAsking(true);
+    setAskError(null);
+    try {
+      await api.askAboutPosition(gameId, ply, text);
+      const stored = await api.getCoachMessages(gameId);
+      setData((known) => known && { ...known, notes: stored });
+      setDraft("");
+    } catch (failure) {
+      setAskError(failure instanceof ApiError ? failure.message : "Could not reach the coach. Try again.");
+    } finally {
+      setAsking(false);
+    }
+  };
 
   // A horizontal drag past the threshold steps the game; pan-y keeps vertical scrolling working.
   const endSwipe = (event: PointerEvent) => {
@@ -203,10 +224,36 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
             </p>
           )}
           {notesHere.map((note, index) => (
-            <p key={index} className="rounded-md border border-l-4 border-l-primary bg-card p-3 text-sm">
+            <p
+              key={index}
+              className={cn(
+                "rounded-md border border-l-4 bg-card p-3 text-sm",
+                note.role === "player" ? "border-l-muted-foreground bg-muted" : "border-l-primary",
+              )}
+            >
+              {note.role === "player" && (
+                <span className="font-semibold">{note.kind === "answer" ? "Your answer: " : "You asked: "}</span>
+              )}
               {note.text}
             </p>
           ))}
+          <form onSubmit={ask} className="flex gap-2">
+            <input
+              aria-label="Ask the coach"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={ply === 0 ? "Ask about the start position…" : `Ask about the position after ${moveLabel(ply, game.moves[ply - 1])}…`}
+              className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm outline-none transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            />
+            <Button type="submit" disabled={asking || !draft.trim()}>
+              {asking ? "Asking…" : "Ask"}
+            </Button>
+          </form>
+          {askError && (
+            <p role="alert" className="text-sm text-destructive">
+              {askError}
+            </p>
+          )}
         </section>
       </div>
     </div>

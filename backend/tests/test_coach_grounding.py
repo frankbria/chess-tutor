@@ -749,3 +749,20 @@ def test_the_answer_template_with_no_facts_still_acknowledges() -> None:
     template = template_reply(context)
 
     assert template.text.startswith("Thanks for explaining. ") and template.fact_ids == []
+
+
+@pytest.mark.parametrize("text", ["Look at e5.", "What about Nxe5?", "Is the knight on c6 safe?"])
+def test_a_level_one_nudge_names_no_square_or_move(text: str) -> None:
+    context = context_for(active_pre_lock_in=True, hint_level=1)
+
+    assert GroundingErrorKind.HINT_TOO_SPECIFIC in kinds(reply(text), context)
+
+
+def test_the_level_one_nudge_and_its_template_pass() -> None:
+    context = context_for(active_pre_lock_in=True, hint_level=1)
+
+    assert validate_reply(reply(LEVEL_ONE_NUDGE), context) == []
+    assert validate_reply(template_reply(context), context) == []
+    assert GroundingErrorKind.HINT_TOO_SPECIFIC not in kinds(
+        reply("Look at e5."), context_for(active_pre_lock_in=True, hint_level=2)
+    )
