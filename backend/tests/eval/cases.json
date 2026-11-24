@@ -1,0 +1,451 @@
+[
+  {
+    "id": "passive-opening-bishop-development",
+    "phase": "opening",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3",
+    "move": "Bc4",
+    "expect_any": [
+      "develop|bishop|centre|center"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "passive-opening-early-queen",
+    "phase": "opening",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+    "move": "Qh5",
+    "expect_any": [
+      "develop|queen|knight|piece"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "passive-opening-knight-sortie",
+    "phase": "opening",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+    "move": "Ng5",
+    "expect_any": [
+      "hanging_piece",
+      "hang|unprotected|undefended|loose|attack"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "passive-opening-ignored-threat",
+    "phase": "opening",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+    "move": "a6",
+    "expect_any": [
+      "allows",
+      "hanging_piece",
+      "threat|attack|defend|protect"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "passive-opening-pin-ruy-lopez",
+    "phase": "opening",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
+    "move": "Nf6",
+    "expect_any": [
+      "skewer",
+      "pin|develop|knight|bishop"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "passive-middlegame-allows-fork",
+    "phase": "middlegame",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "3qk2r/pp3ppp/8/8/1n6/8/PP3PPP/R2QK1N1 w - - 0 1",
+    "move": "Qg4",
+    "expect_any": [
+      "allows",
+      "fork",
+      "fork|knight|king"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "passive-middlegame-back-rank",
+    "phase": "middlegame",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "r5k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+    "move": "Rd8+",
+    "expect_any": [
+      "back_rank_weakness",
+      "allows",
+      "back rank|rook|trade"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "passive-middlegame-quiet-good-move",
+    "phase": "middlegame",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "r1bq1rk1/ppp2ppp/2np1n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 7",
+    "move": "Bg5",
+    "expect_any": [
+      "pin",
+      "pin|knight|develop"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "passive-endgame-king-step",
+    "phase": "endgame",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "r3k3/8/8/3N4/8/8/8/4K3 b - - 0 1",
+    "move": "Kd7",
+    "expect_any": [
+      "activity",
+      "king|active|centre|center"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "passive-endgame-pawn-race",
+    "phase": "endgame",
+    "mode": "passive",
+    "event": "comment_on_move",
+    "fen": "8/4P3/8/8/8/8/k7/4K3 w - - 0 1",
+    "move": "Kd2",
+    "expect_any": [
+      "pawn_structure",
+      "activity",
+      "pawn|promot|queen|king"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "hint1-opening-knight-sortie",
+    "phase": "opening",
+    "mode": "active",
+    "event": "hint",
+    "hint_level": 1,
+    "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+    "move": "Ng5",
+    "expect_any": [
+      "opponent|next|threat|reply|respond|think|ask"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "hint2-opening-after-fried-liver-start",
+    "phase": "opening",
+    "mode": "active",
+    "event": "hint",
+    "hint_level": 2,
+    "fen": "r1bqkb1r/ppp2ppp/2n5/3np1N1/2B5/8/PPPP1PPP/RNBQK2R w KQkq - 0 6",
+    "move": "h3",
+    "expect_any": [
+      "allows",
+      "king_safety",
+      "development",
+      "hanging_piece",
+      "skewer"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "hint3-opening-missed-mate",
+    "phase": "opening",
+    "mode": "active",
+    "event": "hint",
+    "hint_level": 3,
+    "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+    "move": "Nf3",
+    "expect_any": [
+      "fork",
+      "pin",
+      "hanging_piece",
+      "development",
+      "allows"
+    ],
+    "forbid": [
+      "\\b(?:check)?mate\\b"
+    ]
+  },
+  {
+    "id": "hint1-middlegame-fork-chance",
+    "phase": "middlegame",
+    "mode": "active",
+    "event": "hint",
+    "hint_level": 1,
+    "fen": "r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1",
+    "move": "Kf2",
+    "expect_any": [
+      "opponent|next|threat|reply|respond|think|ask|look"
+    ],
+    "forbid": [
+      "\\bforks?\\b"
+    ]
+  },
+  {
+    "id": "hint2-middlegame-allows-fork",
+    "phase": "middlegame",
+    "mode": "active",
+    "event": "hint",
+    "hint_level": 2,
+    "fen": "3qk2r/pp3ppp/8/8/1n6/8/PP3PPP/R2QK1N1 w - - 0 1",
+    "move": "Qg4",
+    "expect_any": [
+      "allows",
+      "fork",
+      "king_safety"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "hint3-middlegame-ignored-threat",
+    "phase": "middlegame",
+    "mode": "active",
+    "event": "hint",
+    "hint_level": 3,
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+    "move": "a6",
+    "expect_any": [
+      "hanging_piece",
+      "threat|attack|protect|defend|undefended"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "hint1-endgame-king-and-pawn",
+    "phase": "endgame",
+    "mode": "active",
+    "event": "hint",
+    "hint_level": 1,
+    "fen": "8/8/8/4k3/8/4K3/4P3/8 w - - 0 1",
+    "move": "Kd3",
+    "expect_any": [
+      "opponent|next|king|pawn|reply|think|ask"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "hint2-endgame-rook-vs-pawns",
+    "phase": "endgame",
+    "mode": "active",
+    "event": "hint",
+    "hint_level": 2,
+    "fen": "8/5pk1/6p1/8/8/5K2/R7/8 w - - 0 1",
+    "move": "Ra7",
+    "expect_any": [
+      "activity",
+      "pawn_structure",
+      "rook|king|pawn"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "hint3-endgame-king-step",
+    "phase": "endgame",
+    "mode": "active",
+    "event": "hint",
+    "hint_level": 3,
+    "fen": "r3k3/8/8/3N4/8/8/8/4K3 b - - 0 1",
+    "move": "Kd7",
+    "expect_any": [
+      "activity",
+      "king|rook|active"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "thought-opening-attack-f7",
+    "phase": "opening",
+    "mode": "active",
+    "locked_in": true,
+    "event": "answer_question",
+    "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+    "move": "Ng5",
+    "player_message": "I wanted to attack the f7 pawn right away.",
+    "expect_any": [
+      "hanging_piece",
+      "idea|attack|f7"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "thought-middlegame-threaten-knight",
+    "phase": "middlegame",
+    "mode": "passive",
+    "event": "answer_question",
+    "fen": "3qk2r/pp3ppp/8/8/1n6/8/PP3PPP/R2QK1N1 w - - 0 1",
+    "move": "Qg4",
+    "player_message": "I wanted to put some pressure on their king.",
+    "expect_any": [
+      "fork",
+      "allows",
+      "king_safety",
+      "idea|fork|knight"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "thought-middlegame-win-the-rook",
+    "phase": "middlegame",
+    "mode": "active",
+    "locked_in": true,
+    "event": "answer_question",
+    "fen": "r5k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1",
+    "move": "Rd8+",
+    "player_message": "I thought I could trade rooks and simplify.",
+    "expect_any": [
+      "back_rank_weakness",
+      "allows",
+      "rook|back rank|trade"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "thought-middlegame-just-developing",
+    "phase": "middlegame",
+    "mode": "passive",
+    "event": "answer_question",
+    "fen": "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3",
+    "move": "Nf6",
+    "player_message": "I just wanted to develop my knight and attack the pawn on e4.",
+    "expect_any": [
+      "skewer",
+      "develop|idea|knight|bishop"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "thought-endgame-king-walk",
+    "phase": "endgame",
+    "mode": "passive",
+    "event": "answer_question",
+    "fen": "8/4P3/8/8/8/8/k7/4K3 w - - 0 1",
+    "move": "Kd2",
+    "player_message": "I was bringing my king closer so my pawn is safe.",
+    "expect_any": [
+      "allows",
+      "activity",
+      "pawn_structure",
+      "king|pawn|promot"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "thought-endgame-king-to-safety",
+    "phase": "endgame",
+    "mode": "passive",
+    "event": "answer_question",
+    "fen": "r3k3/8/8/3N4/8/8/8/4K3 b - - 0 1",
+    "move": "Kd7",
+    "player_message": "I moved the king toward the center because it is more active there.",
+    "expect_any": [
+      "activity",
+      "king|active|centre|center"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "question-opening-why-develop",
+    "phase": "opening",
+    "mode": "passive",
+    "event": "answer_question",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+    "move": "Qh5",
+    "player_message": "Is it bad to bring my queen out this early?",
+    "expect_any": [
+      "material_balance",
+      "develop|queen|knight|attack"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "question-opening-should-i-play-this",
+    "phase": "opening",
+    "mode": "active",
+    "event": "answer_question",
+    "hint_level": 2,
+    "fen": "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+    "move": "Ng5",
+    "player_message": "Should I play Ng5 here?",
+    "expect_any": [
+      "hanging_piece",
+      "knight|piece|attack|think"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "question-middlegame-what-is-threatened",
+    "phase": "middlegame",
+    "mode": "passive",
+    "event": "answer_question",
+    "fen": "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+    "move": "a6",
+    "player_message": "What is my opponent threatening after this?",
+    "expect_any": [
+      "hanging_piece",
+      "allows",
+      "threat|attack|knight|pawn|undefended"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "question-middlegame-best-move-before-lock-in",
+    "phase": "middlegame",
+    "mode": "active",
+    "event": "answer_question",
+    "hint_level": 1,
+    "fen": "r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1",
+    "move": "Kf2",
+    "player_message": "What is the best move here? Just tell me.",
+    "expect_any": [
+      "activity",
+      "opponent|piece|think|look|ask|check"
+    ],
+    "forbid": [
+      "\\bforks?\\b"
+    ]
+  },
+  {
+    "id": "question-endgame-trade-rooks",
+    "phase": "endgame",
+    "mode": "passive",
+    "event": "answer_question",
+    "fen": "4r1k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1",
+    "move": "Rxe8+",
+    "player_message": "Is trading rooks a good idea here?",
+    "expect_any": [
+      "back_rank_weakness",
+      "mate_threat",
+      "hanging_piece",
+      "rook|trade|back rank"
+    ],
+    "forbid": []
+  },
+  {
+    "id": "question-endgame-how-to-win",
+    "phase": "endgame",
+    "mode": "passive",
+    "event": "answer_question",
+    "fen": "8/8/8/4k3/8/4K3/4P3/8 w - - 0 1",
+    "move": "Kd3",
+    "player_message": "How do I win this position?",
+    "expect_any": [
+      "pawn_structure",
+      "king|pawn|opposition|queen|promot"
+    ],
+    "forbid": []
+  }
+]
