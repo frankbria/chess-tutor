@@ -24,7 +24,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from chess_tutor.models import ConceptEvent, ConceptState, ConceptStatus
+from chess_tutor.models import ConceptEvent, ConceptSource, ConceptState, ConceptStatus
 from chess_tutor.settings import ConceptStateThresholds
 
 # shortcut: "clean" means any finished game without the concept, even one where it could not
@@ -101,7 +101,11 @@ def refresh_concept_states(
     occurred = set(
         session.scalars(
             select(ConceptEvent.concept)
-            .where(ConceptEvent.player_id == player_id, ConceptEvent.game_id == game_id)
+            .where(
+                ConceptEvent.player_id == player_id,
+                ConceptEvent.game_id == game_id,
+                ConceptEvent.source == ConceptSource.MOVE,  # reasoning patterns are not concepts
+            )
             .distinct()
         )
     )

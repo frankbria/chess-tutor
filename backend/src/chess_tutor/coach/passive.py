@@ -24,6 +24,7 @@ from chess_tutor.coach.grounding import THOUGHT_QUESTION, coach_reply_with_groun
 from chess_tutor.coach.llm import LanguageModel, record_llm_cost
 from chess_tutor.coach.profile import build_coach_profile, stored_phrasings
 from chess_tutor.coach.prompt import RECENT_MESSAGES_SHOWN, CoachContext, CoachEvent
+from chess_tutor.coach.reasoning import tag_reasoning
 from chess_tutor.coach.summary import build_digest, store_summary, summarize_game
 from chess_tutor.coach.thought import (
     KEY_MOMENTS,
@@ -112,6 +113,9 @@ class PassiveCoach:
         """Store the answer to the open question now; the coach replies in the background."""
         ply = self._close_question(game_id, CoachMessageKind.ANSWER, text)
         self._spawn(game_id, lambda: self.reply_to_answer(game_id, ply, text), "answering")
+        self._spawn(
+            game_id, lambda: tag_reasoning(self._engine, self._model, game_id, ply, text), "tagging"
+        )
 
     def skip_question(self, game_id: int) -> None:
         """A skipped question still owes the player the normal comment on that move."""

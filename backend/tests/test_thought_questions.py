@@ -4,6 +4,7 @@ from test_passive_coach import COMMENT, GENERIC, UNGROUNDED, Harness, scripted, 
 
 from chess_tutor.api.events import CoachCommentEvent
 from chess_tutor.coach.prompt import CoachReply
+from chess_tutor.coach.reasoning import ReasoningTags
 from chess_tutor.models import (
     CoachMessage,
     CoachMessageKind,
@@ -131,7 +132,7 @@ def test_a_second_key_moment_after_the_spacing_asks_again(settings: Settings) ->
 
 
 def test_an_answer_gets_a_grounded_reply_at_the_same_ply(settings: Settings) -> None:
-    model = scripted(REPLY)
+    model = scripted(REPLY, ReasoningTags(patterns=[]))
     with started(asking(settings), model) as harness:
         harness.play(4)
         harness.events()
@@ -151,7 +152,7 @@ def test_an_answer_gets_a_grounded_reply_at_the_same_ply(settings: Settings) -> 
         )
         [event] = [e for e in harness.events() if isinstance(e, CoachCommentEvent)]
         assert (event.kind.value, event.ply, event.text) == ("answer", 7, REPLY.text)
-    [call] = model.calls
+    call = model.calls[0]  # the second call classifies the reasoning
     assert '"event":"answer_question"' in call.messages[0].content
     assert ANSWER in call.messages[0].content
     assert '"locked_in":true' in call.messages[0].content
