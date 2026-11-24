@@ -15,6 +15,7 @@ from chess_tutor.models import (
     CoachMessageKind,
     CoachMessageSource,
     CoachRole,
+    Game,
     GameSummary,
     Move,
 )
@@ -157,6 +158,13 @@ def test_a_regular_game_is_scored_on_first_review_and_the_scores_are_kept(
     assert [m["ply"] for m in body["key_moments"]] == [7]
     assert stored == [(p["ply"], p["win_probability"]) for p in body["win_probabilities"]]
     assert again["win_probabilities"] == body["win_probabilities"]
+    assert body["accuracy"] is not None and body["performance_rating"] is not None
+    with Session(app.state.engine) as session:
+        game = session.get_one(Game, game_id)
+        assert (game.accuracy, game.performance_rating) == (
+            body["accuracy"],
+            body["performance_rating"],
+        )
 
 
 def test_the_stored_summary_reasoning_and_concepts_are_returned(settings: Settings) -> None:

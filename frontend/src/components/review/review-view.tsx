@@ -18,12 +18,16 @@ const SWIPE_DISTANCE_PX = 50;
 const moveLabel = (ply: number, san: string) =>
   ply % 2 === 1 ? `${Math.ceil(ply / 2)}. ${san}` : `${Math.ceil(ply / 2)}... ${san}`;
 
+// The post-game summary is written in the background; poll for it briefly, then give up.
+const SUMMARY_RETRY_DELAYS_MS = [2000, 4000, 8000];
+
 const NO_MESSAGE = "Could not load the review. Try again.";
 
 export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; api?: ReviewApi }) {
   const [data, setData] = useState<{ game: GameState; review: Review; notes: CoachMessage[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ply, setPly] = useState(0);
+  const [summaryRetries, setSummaryRetries] = useState(0);
   const swipeStart = useRef<number | null>(null);
   const totalPlies = data?.game.moves.length ?? 0;
 
@@ -40,6 +44,19 @@ export function ReviewView({ gameId, api = httpReviewApi }: { gameId: number; ap
       current = false;
     };
   }, [api, gameId]);
+
+  const summaryPending = data !== null && data.review.summary === null;
+  useEffect(() => {
+    if (!summaryPending || summaryRetries >= SUMMARY_RETRY_DELAYS_MS.length) return;
+    const timer = setTimeout(() => {
+      api
+        .getReview(gameId)
+        .then((review) => setData((known) => known && { ...known, review }))
+        .catch(() => undefined) // the first load already succeeded; keep what is shown
+        .finally(() => setSummaryRetries((count) => count + 1));
+    }, SUMMARY_RETRY_DELAYS_MS[summaryRetries]);
+    return () => clearTimeout(timer);
+  }, [api, gameId, summaryPending, summaryRetries]);
 
   useEffect(() => {
     const keys: Record<string, (from: number) => number> = {

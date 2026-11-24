@@ -151,6 +151,42 @@ describe("ReviewView", () => {
     expect(screen.getByTestId("graph")).toHaveAttribute("data-points", "3");
   });
 
+  it("keeps refetching with backoff until the post-game summary arrives, then stops", async () => {
+    vi.useFakeTimers();
+    try {
+      const getReview = vi
+        .fn<ReviewApi["getReview"]>()
+        .mockResolvedValueOnce({ ...review, summary: null })
+        .mockResolvedValueOnce({ ...review, summary: null })
+        .mockResolvedValue(review);
+      renderReview({ getReview });
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(getReview).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("You lost a tempo in the opening.")).not.toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      expect(getReview).toHaveBeenCalledTimes(2);
+      await act(() => vi.advanceTimersByTimeAsync(4000));
+      expect(getReview).toHaveBeenCalledTimes(3);
+      expect(screen.getByText("You lost a tempo in the opening.")).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(60000));
+      expect(getReview).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up after three retries when no summary ever comes", async () => {
+    vi.useFakeTimers();
+    try {
+      const getReview = vi.fn<ReviewApi["getReview"]>().mockResolvedValue({ ...review, summary: null });
+      renderReview({ getReview });
+      for (const delay of [0, 2000, 4000, 8000, 60000]) await act(() => vi.advanceTimersByTimeAsync(delay));
+      expect(getReview).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("copes with a game that has no key moments or summary", async () => {
     renderReview({ getReview: async () => ({ ...review, key_moments: [], summary: null, accuracy: null }) });
     await screen.findByTestId("board");

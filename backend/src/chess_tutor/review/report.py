@@ -21,6 +21,7 @@ from chess_tutor.models import (
     Move,
     PlayerColor,
 )
+from chess_tutor.rating.performance import record_performance
 from chess_tutor.settings import ClassificationThresholds
 
 MAX_SWINGS = 4
@@ -151,13 +152,14 @@ async def _score_unscored_moves(
         unscored = session.scalars(
             select(Move.ply).where(Move.game_id == game.id, Move.classification.is_(None))
         ).all()
+    scoring = [ply for ply in unscored if ply % 2 == parity]
     await asyncio.gather(
-        *(
-            classify_stored_move(engine, pool, game.id, ply, thresholds)
-            for ply in unscored
-            if ply % 2 == parity
-        )
+        *(classify_stored_move(engine, pool, game.id, ply, thresholds) for ply in scoring)
     )
+    if scoring:
+        with Session(engine) as session:
+            record_performance(session, session.get_one(Game, game.id))
+            session.commit()
 
 
 async def build_review(
@@ -170,6 +172,8 @@ async def build_review(
         moves = list(
             session.scalars(select(Move).where(Move.game_id == game.id).order_by(Move.ply))
         )
+        scored_game = session.get_one(Game, game.id)  # accuracy may have just been recorded
+        accuracy, performance = scored_game.accuracy, scored_game.performance_rating
         win_probabilities = [
             PlyWinProbability(move.ply, move.eval_after)
             for move in moves
@@ -209,8 +213,8 @@ async def build_review(
         )
     key_moments = list(await asyncio.gather(*(_reveal(move, pool) for move in chosen)))
     return Review(
-        game.accuracy,
-        game.performance_rating,
+        accuracy,
+        performance,
         win_probabilities,
         key_moments,
         reasoning,
