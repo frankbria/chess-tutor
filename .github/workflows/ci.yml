@@ -28,7 +28,8 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A cold Stockfish cache can spend ~10 min on a stalled Ubuntu mirror before the ~5 min suite.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -38,11 +39,21 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: backend/uv.lock
+      # The Ubuntu mirror has stalled for 5+ minutes on this 64 MB package, so keep the .deb cached.
+      - name: Cache Stockfish package
+        uses: actions/cache@v5
+        with:
+          path: ~/stockfish-deb
+          key: stockfish-deb-${{ runner.os }}-v1
       - name: Install Stockfish
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: |
-          sudo apt-get update
-          sudo apt-get install -y stockfish
+          if ! ls ~/stockfish-deb/*.deb >/dev/null 2>&1; then
+            sudo apt-get update
+            mkdir -p ~/stockfish-deb
+            (cd ~/stockfish-deb && apt-get download stockfish)
+          fi
+          sudo dpkg -i ~/stockfish-deb/*.deb
           echo "STOCKFISH_PATH=$(command -v stockfish || echo /usr/games/stockfish)" >> "$GITHUB_ENV"
       - name: Cache Maia-3 install and weights
         uses: actions/cache@v5

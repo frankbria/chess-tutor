@@ -30,7 +30,8 @@ You write a short memory note about one finished chess game, for the student's c
 before later games. The context is JSON: the opening, the result for the student, the moments \
 that mattered (move number and how the move was rated) and the recurring-mistake concepts that \
 were tagged. Write `summary`: two plain sentences covering the opening, how the game went and \
-the result. Write `key_moments`: at most three short sentences, each about one moment or concept. \
+the result; address the player directly as "you" (never "the student"). \
+Write `key_moments`: at most three short sentences, each about one moment or concept. \
 Never name a square, piece move or move notation; refer to moments by move number and concept. \
 Never invent anything that is not in the context.\
 """
@@ -102,7 +103,7 @@ def template_summary(digest: GameDigest) -> SummaryDraft:
         labels = ", ".join(CONCEPTS[concept].label for concept in digest.concepts)
         summary += f" Mistake patterns tagged: {labels}."
     moments = [
-        f"Move {move.move_number} was rated a {move.classification}."
+        f"Your move {move.move_number} was rated a {move.classification}."
         for move in digest.notable_moves
     ]
     return SummaryDraft(summary=summary, key_moments=moments)

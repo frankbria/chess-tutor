@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     coach_comment_every_n_moves: int = Field(
         default=1, ge=1
     )  # passive mode; 1 comments on every notable move
+    thought_question_every_n_moves: int = Field(
+        default=4, ge=0
+    )  # passive mode; at most one "what was your thought?" per this many player moves, 0 is off
     active_remark_every_n_proposals: int = Field(
         default=5, ge=1
     )  # active mode; at most one board-feature remark on a fine move per this many proposals

@@ -8,6 +8,7 @@ ready (usually after the `opponent_move` event). Ordinary Good/Best moves cost n
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 
 import chess
 from sqlalchemy import Engine, select
@@ -15,32 +16,41 @@ from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.orm import Session
 
 from chess_tutor.analysis.classification import MoveClassification
-from chess_tutor.analysis.move_delta import move_delta
+from chess_tutor.analysis.move_delta import MoveDelta, move_delta
 from chess_tutor.analysis.recording import classify_stored_move
 from chess_tutor.api.events import CoachCommentEvent, GameEvents
 from chess_tutor.api.settings import load_preferences
-from chess_tutor.coach.grounding import coach_reply_with_grounding
+from chess_tutor.coach.grounding import THOUGHT_QUESTION, coach_reply_with_grounding
 from chess_tutor.coach.llm import LanguageModel, record_llm_cost
 from chess_tutor.coach.profile import build_coach_profile, stored_phrasings
 from chess_tutor.coach.prompt import RECENT_MESSAGES_SHOWN, CoachContext, CoachEvent
 from chess_tutor.coach.summary import build_digest, store_summary, summarize_game
+from chess_tutor.coach.thought import (
+    KEY_MOMENTS,
+    NoPendingQuestionError,
+    pending_question,
+    player_move_number,
+    question_due,
+)
 from chess_tutor.concepts.state import refresh_concept_states
 from chess_tutor.concepts.tagger import record_concepts, tag_mistake
+from chess_tutor.concepts.taxonomy import Concept
 from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.facts.packet import build_fact_packet
+from chess_tutor.games.service import GameNotActiveError
 from chess_tutor.models import (
     CoachMessage,
     CoachMessageKind,
     CoachMessageSource,
     CoachRole,
+    ConceptEvent,
     Game,
     GameMode,
     GameStatus,
     GameSummary,
     Move,
-    PlayerColor,
 )
-from chess_tutor.openings.phase import detect_phase
+from chess_tutor.openings.phase import GamePhase, detect_phase
 from chess_tutor.rating.performance import record_performance
 from chess_tutor.settings import Settings
 
@@ -54,10 +64,6 @@ COMMENTED = {
     MoveClassification.BRILLIANT,
 }
 MISTAKES = {MoveClassification.MISTAKE, MoveClassification.BLUNDER}
-
-
-def player_move_number(ply: int, color: PlayerColor) -> int:
-    return (ply + 1) // 2 if color is PlayerColor.WHITE else ply // 2
 
 
 # The SDK's own timeout is minutes long; a game-ending request should not hang that long.
@@ -95,8 +101,51 @@ class PassiveCoach:
     def is_coaching(self, game_id: int) -> bool:
         return self._pending.get(game_id, 0) > 0
 
-    def schedule(self, game_id: int, ply: int) -> None:
-        task = asyncio.create_task(self._run(game_id, ply))
+    def schedule(self, game_id: int, ply: int, *, skipped_question: bool = False) -> None:
+        self._spawn(
+            game_id,
+            lambda: self.coach_move(game_id, ply, skipped_question=skipped_question),
+            f"coaching ply {ply}",
+        )
+
+    def answer_question(self, game_id: int, text: str) -> None:
+        """Store the answer to the open question now; the coach replies in the background."""
+        ply = self._close_question(game_id, CoachMessageKind.ANSWER, text)
+        self._spawn(game_id, lambda: self.reply_to_answer(game_id, ply, text), "answering")
+
+    def skip_question(self, game_id: int) -> None:
+        """A skipped question still owes the player the normal comment on that move."""
+        ply = self._close_question(game_id, CoachMessageKind.SKIPPED, "")
+        self.schedule(game_id, ply, skipped_question=True)
+
+    def _close_question(self, game_id: int, kind: CoachMessageKind, text: str) -> int:
+        with Session(self._engine) as session:
+            ply = self._open_question(session, game_id).ply
+            session.add(
+                CoachMessage(
+                    game_id=game_id,
+                    ply=ply,
+                    role=CoachRole.PLAYER,
+                    kind=kind,
+                    text=text,
+                    fact_ids="[]",
+                    source=CoachMessageSource.TEMPLATE,
+                    concepts="[]",
+                )
+            )
+            session.commit()
+        return ply
+
+    def _open_question(self, session: Session, game_id: int) -> CoachMessage:
+        if session.get_one(Game, game_id).status is GameStatus.FINISHED:
+            raise GameNotActiveError("the game is over")
+        question = pending_question(session, game_id)
+        if question is None:
+            raise NoPendingQuestionError("the coach has not asked a question")
+        return question
+
+    def _spawn(self, game_id: int, work: Callable[[], Awaitable[None]], description: str) -> None:
+        task = asyncio.create_task(self._run(game_id, work, description))
         self._tasks[task] = game_id
         self._pending[game_id] = self._pending.get(game_id, 0) + 1
         task.add_done_callback(lambda done: self._tasks.pop(done, None))
@@ -126,13 +175,15 @@ class PassiveCoach:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _run(self, game_id: int, ply: int) -> None:
+    async def _run(
+        self, game_id: int, work: Callable[[], Awaitable[None]], description: str
+    ) -> None:
         try:
             async with self._in_order.setdefault(game_id, asyncio.Lock()):
-                await self.coach_move(game_id, ply)
+                await work()
         # A background task has no caller to tell: log it, and never let it touch the game.
         except Exception:
-            logger.exception("passive coaching failed for game %s ply %s", game_id, ply)
+            logger.exception("passive coaching failed for game %s (%s)", game_id, description)
         finally:
             self._finish_game_if_last(game_id)
 
@@ -176,8 +227,11 @@ class PassiveCoach:
         except Exception:
             logger.exception("summarising game %s failed", game_id)
 
-    async def coach_move(self, game_id: int, ply: int) -> None:
-        """Classify the player's move at `ply`, tag its concepts, and comment if it is notable."""
+    async def coach_move(self, game_id: int, ply: int, *, skipped_question: bool = False) -> None:
+        """Classify the player's move at `ply`, tag its concepts, and comment if it is notable.
+
+        A skipped question's comment is owed to the player, so it ignores the comment spacing.
+        """
         try:
             stored = await classify_stored_move(
                 self._engine, self._pool, game_id, ply, self._settings.thresholds.classification
@@ -201,21 +255,121 @@ class PassiveCoach:
         with Session(self._engine) as session:
             if not self._still_played(session, stored):
                 return
-            player_id = session.get_one(Game, game_id).player_id
-            record_concepts(session, player_id, game_id, ply, concepts)
+            game = session.get_one(Game, game_id)
+            already_recorded = session.scalars(
+                select(ConceptEvent.id).where(
+                    ConceptEvent.game_id == game_id, ConceptEvent.ply == ply
+                )
+            ).first()
+            if not already_recorded:  # a skipped question comes back through this path
+                record_concepts(session, game.player_id, game_id, ply, concepts)
             session.commit()
-        if self._model is None or not self._due(game_id, ply):
+            ask = (
+                self._model is not None
+                and game.status is GameStatus.ACTIVE
+                and classification in KEY_MOMENTS
+                and question_due(
+                    session,
+                    game_id,
+                    ply,
+                    game.player_color,
+                    self._settings.thought_question_every_n_moves,
+                )
+            )
+        if ask:
+            self._ask_thought(game_id, stored, classification, phase, delta.move_san)
+            return
+        if self._model is None or not (skipped_question or self._due(game_id, ply)):
+            return
+        context = self._context(
+            game_id, board, delta, phase, concepts, CoachEvent.COMMENT_ON_MOVE, None
+        )
+        await self._reply_and_store(
+            game_id, stored, context, CoachMessageKind.COMMENT, classification, phase, concepts
+        )
+
+    async def reply_to_answer(self, game_id: int, ply: int, answer: str) -> None:
+        """The coach's grounded response to the player's reasoning, stored at the same ply."""
+        if self._model is None:
             return
         with Session(self._engine) as session:
+            stored = session.scalars(
+                select(Move).where(Move.game_id == game_id, Move.ply == ply)
+            ).one_or_none()
+            if stored is None or stored.classification is None:  # taken back since the answer
+                return
+            session.expunge(stored)
+        board = chess.Board(stored.fen_before)
+        delta = await move_delta(board, chess.Move.from_uci(stored.uci), self._pool)
+        phase = detect_phase(board, self._settings.thresholds.phase)
+        classification = MoveClassification(stored.classification)
+        concepts = tag_mistake(delta, phase, board) if classification in MISTAKES else []
+        context = self._context(
+            game_id, board, delta, phase, concepts, CoachEvent.ANSWER_QUESTION, answer
+        )
+        await self._reply_and_store(
+            game_id, stored, context, CoachMessageKind.ANSWER, classification, phase, concepts
+        )
+
+    def _ask_thought(
+        self,
+        game_id: int,
+        stored: Move,
+        classification: MoveClassification,
+        phase: GamePhase,
+        move_san: str,
+    ) -> None:
+        text = THOUGHT_QUESTION.format(move=move_san)
+        with Session(self._engine) as session:
+            if not self._still_played(session, stored):
+                return
+            session.add(
+                CoachMessage(
+                    game_id=game_id,
+                    ply=stored.ply,
+                    role=CoachRole.COACH,
+                    kind=CoachMessageKind.QUESTION,
+                    text=text,
+                    fact_ids="[]",
+                    source=CoachMessageSource.TEMPLATE,
+                    concepts="[]",
+                )
+            )
+            session.commit()
+        self._events.publish(
+            game_id,
+            CoachCommentEvent(
+                ply=stored.ply,
+                text=text,
+                classification=classification.value,
+                phase=phase,
+                fact_ids=[],
+                source=CoachMessageSource.TEMPLATE.value,
+                kind=CoachMessageKind.QUESTION,
+            ),
+        )
+
+    def _context(
+        self,
+        game_id: int,
+        board: chess.Board,
+        delta: MoveDelta,
+        phase: GamePhase,
+        concepts: list[Concept],
+        event: CoachEvent,
+        player_message: str | None,
+    ) -> CoachContext:
+        with Session(self._engine) as session:
+            player_id = session.get_one(Game, game_id).player_id
             verbosity = load_preferences(session, self._settings.maia_model).coach_verbosity
             profile = build_coach_profile(
                 session, player_id, concepts, stored_phrasings(session, player_id)
             )
-        context = CoachContext(
+        return CoachContext(
             mode=GameMode.PASSIVE,
             active_pre_lock_in=False,
             phase=phase,
-            event=CoachEvent.COMMENT_ON_MOVE,
+            event=event,
             move_san=delta.move_san,
             fact_packet=build_fact_packet(board),
             move_delta_facts=delta.facts,
@@ -223,8 +377,21 @@ class PassiveCoach:
             best_line=delta.best_line,
             profile=profile,
             recent_coach_messages=self._recent_texts(game_id),
+            player_message=player_message,
             verbosity=verbosity,
         )
+
+    async def _reply_and_store(
+        self,
+        game_id: int,
+        stored: Move,
+        context: CoachContext,
+        kind: CoachMessageKind,
+        classification: MoveClassification,
+        phase: GamePhase,
+        concepts: list[Concept],
+    ) -> None:
+        assert self._model is not None
         reply = await coach_reply_with_grounding(self._model, context)
         with Session(self._engine) as session:
             if not self._still_played(session, stored):  # taken back while the LLM replied
@@ -232,9 +399,9 @@ class PassiveCoach:
             session.add(
                 CoachMessage(
                     game_id=game_id,
-                    ply=ply,
+                    ply=stored.ply,
                     role=CoachRole.COACH,
-                    kind=CoachMessageKind.COMMENT,
+                    kind=kind,
                     text=reply.text,
                     fact_ids=json.dumps(reply.fact_ids),
                     source=CoachMessageSource(reply.source.value),
@@ -246,12 +413,13 @@ class PassiveCoach:
         self._events.publish(
             game_id,
             CoachCommentEvent(
-                ply=ply,
+                ply=stored.ply,
                 text=reply.text,
                 classification=classification.value,
                 phase=phase,
                 fact_ids=reply.fact_ids,
                 source=reply.source.value,
+                kind=kind,
             ),
         )
 
