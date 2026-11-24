@@ -115,8 +115,16 @@ class Harness:
         assert self.api.portal is not None
         self.api.portal.call(self.app.state.passive_coach.wait_until_idle)
 
-    def events(self) -> list[GameEvent]:
+    def all_events(self) -> list[GameEvent]:
         return [self.queue.get_nowait() for _ in range(self.queue.qsize())]
+
+    def events(self) -> list[GameEvent]:
+        """Everything but the provisional template lines, which have their own tests."""
+        return [
+            event
+            for event in self.all_events()
+            if not (isinstance(event, CoachCommentEvent) and event.provisional)
+        ]
 
     def comments(self) -> list[CoachMessage]:
         with Session(self.app.state.engine) as session:
@@ -163,6 +171,21 @@ def test_a_blunder_gets_a_grounded_comment(settings: Settings) -> None:
         call.tier is ModelTier.COACHING and '"event":"comment_on_move"' in call.messages[0].content
     )
     assert '"locked_in":true' in call.messages[0].content
+
+
+def test_the_template_arrives_before_the_final_comment_under_the_same_key(
+    settings: Settings,
+) -> None:
+    with started(settings, scripted(COMMENT)) as harness:
+        harness.play(4)
+
+        [first, final] = [e for e in harness.all_events() if isinstance(e, CoachCommentEvent)]
+        assert (first.provisional, final.provisional) == (True, False)
+        assert first.source == "template" and final.source == "llm"
+        assert first.text != final.text
+        assert first.message_key and first.message_key == final.message_key
+        [stored] = harness.comments()
+        assert stored.text == final.text  # the template is never stored
 
 
 @pytest.mark.parametrize("stored", ["brief", "detailed"])

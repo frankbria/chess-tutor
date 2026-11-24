@@ -68,9 +68,12 @@ class Harness:
         with Session(self.app.state.engine) as session:
             return list(session.scalars(select(CoachMessage).order_by(CoachMessage.id)))
 
-    def events(self) -> list[CoachCommentEvent]:
+    def all_events(self) -> list[CoachCommentEvent]:
         found = [self.queue.get_nowait() for _ in range(self.queue.qsize())]
         return [event for event in found if isinstance(event, CoachCommentEvent)]
+
+    def events(self) -> list[CoachCommentEvent]:
+        return [event for event in self.all_events() if not event.provisional]
 
 
 @contextmanager
@@ -99,6 +102,22 @@ def best_move_before_blunder(settings: Settings) -> str:
         return delta.best_move_san
 
     return asyncio.run(best())
+
+
+def test_a_hint_is_preceded_by_its_provisional_template_under_the_same_key(
+    settings: Settings,
+) -> None:
+    model = ScriptedLanguageModel(PRICED)
+    model.queue_structured(CoachReply(text="What can your opponent do after this?", fact_ids=[]))
+    with started(settings, model) as harness:
+        harness.play_setup()
+        harness.propose(BLUNDER)
+
+        [first, final] = harness.all_events()
+        assert (first.provisional, final.provisional) == (True, False)
+        assert first.message_key and first.message_key == final.message_key
+        assert (first.hint_level, final.hint_level) == (1, 1)
+        assert len(harness.stored()) == 1
 
 
 def test_three_rethinks_climb_nudge_pointer_consequence(settings: Settings) -> None:

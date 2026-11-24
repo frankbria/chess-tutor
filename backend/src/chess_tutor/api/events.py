@@ -44,6 +44,10 @@ class CoachCommentEvent(BaseModel):
     hint_level: int | None = None  # Active mode's ladder rung (1 to 3); null for other comments
     # `question` asks what the player thought; `answer` is the coach's reply to that answer.
     kind: CoachMessageKind = CoachMessageKind.COMMENT
+    # A provisional event is the instant template, not stored; the final event with the same
+    # `message_key` replaces it.
+    provisional: bool = False
+    message_key: str | None = None
 
 
 GameEvent = OpponentMoveEvent | GameOverEvent | CoachCommentEvent

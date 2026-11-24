@@ -122,7 +122,11 @@ export function PlayBoard({
         (history) =>
           setCoachMessages((known) => [
             ...history,
-            ...withoutRepeats(history, known),
+            // A provisional line without its final is not stored, so the history cannot confirm it.
+            ...withoutRepeats(
+              history,
+              known.filter((message) => !message.provisional),
+            ),
           ]),
         (error: unknown) => setMessage(errorMessage(error)),
       ),
@@ -141,6 +145,8 @@ export function PlayBoard({
         phase,
         hint_level,
         kind: sent,
+        provisional,
+        message_key,
       }) => {
         // Active mode's hints and remarks are stored as hints, so show them as hints live too.
         const kind =
@@ -155,11 +161,18 @@ export function PlayBoard({
           classification,
           phase,
           hint_level,
+          provisional,
+          message_key,
         };
-        setCoachMessages((known) => [
-          ...known,
-          ...withoutRepeats(known, [comment]),
-        ]);
+        // A newer template replaces the older ones; the final message replaces its own template.
+        setCoachMessages((known) => {
+          const settled = known.filter(
+            (message) =>
+              !message.provisional ||
+              (!provisional && message.message_key !== message_key),
+          );
+          return [...settled, ...withoutRepeats(settled, [comment])];
+        });
       },
       onSnapshot: () => {
         setConnectionLost(false);

@@ -782,6 +782,41 @@ describe("board helpers", () => {
       expect(lockIn).not.toHaveBeenCalled();
     });
 
+    it("swaps the provisional template line for the final text under the same key", async () => {
+      const { api, stream } = fakeApi(active());
+      render(<PlayBoard gameId={1} api={api} />);
+      await screen.findByTestId("board");
+      const comment = {
+        ply: 1,
+        classification: "hint",
+        hint_level: 1,
+        phase: "opening" as const,
+        message_key: "k1",
+      };
+      act(() =>
+        stream()?.onCoachComment({
+          ...comment,
+          text: "Ask yourself what your opponent can do.",
+          provisional: true,
+        }),
+      );
+      const list = () => screen.getByRole("list", { name: "Coach messages" });
+      const draft = await within(list()).findByText(
+        "Ask yourself what your opponent can do.",
+      );
+      expect(draft.closest("li")).toHaveAttribute("data-provisional", "true");
+
+      act(() =>
+        stream()?.onCoachComment({ ...comment, text: "Check what Nc6 guards." }),
+      );
+      await within(list()).findByText("Check what Nc6 guards.");
+      expect(
+        within(list()).queryByText("Ask yourself what your opponent can do."),
+      ).not.toBeInTheDocument();
+      expect(document.querySelectorAll("[data-kind='hint']")).toHaveLength(1);
+      expect(document.querySelector("[data-provisional]")).toBeNull();
+    });
+
     it("keeps two coach messages that differ only in hint level", async () => {
       const { api, stream } = fakeApi(active());
       render(<PlayBoard gameId={1} api={api} />);
