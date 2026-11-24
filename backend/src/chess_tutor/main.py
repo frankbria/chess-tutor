@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from chess_tutor.api.events import GameEvents
 from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
+from chess_tutor.api.review import router as review_router
 from chess_tutor.api.settings import router as settings_router
 from chess_tutor.api.settings import stored_maia_model
 from chess_tutor.coach.active import ActiveTutor, HintCoach
@@ -122,6 +123,7 @@ def create_app(
             await pool.close()
             engine.dispose()
             raise
+        app.state.stockfish_pool = pool
         pacing = None if predictor is None else OpponentPacing(settings, predictor)
         coach_model = language_model or create_language_model(settings)
         passive_coach = PassiveCoach(
@@ -159,6 +161,7 @@ def create_app(
         allow_headers=["Content-Type"],
     )
     app.include_router(games_router)
+    app.include_router(review_router)
     app.include_router(settings_router)
     register_game_errors(app)
 
