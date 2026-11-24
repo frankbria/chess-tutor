@@ -30,7 +30,12 @@ export interface GameState {
 
 export type GamePhase = "opening" | "middlegame" | "endgame";
 
-export type CoachMessageKind = "comment" | "question" | "hint" | "answer";
+export type CoachMessageKind =
+  | "comment"
+  | "question"
+  | "hint"
+  | "answer"
+  | "skipped";
 
 export interface CoachMessage {
   /** The 1-based ply of the move this message refers to. */
@@ -62,9 +67,16 @@ export interface GameStreamHandlers {
     classification: string;
     phase: GamePhase;
     hint_level?: number | null;
+    /** Absent on older servers; a plain comment then. */
+    kind?: CoachMessageKind;
   }) => void;
   onSnapshot: (event: { fen: string; status: string }) => void;
-  onOpponentMove: (event: { uci: string; san: string; fen: string; clock: ClockState | null }) => void;
+  onOpponentMove: (event: {
+    uci: string;
+    san: string;
+    fen: string;
+    clock: ClockState | null;
+  }) => void;
   onGameOver: (event: { result: GameResult; reason: string }) => void;
   /** EventSource reconnects by itself; the next event means the stream is back. */
   onConnectionLost: () => void;
@@ -76,6 +88,10 @@ export interface GameApi {
   playMove(id: number, uci: string): Promise<GameState>;
   resign(id: number): Promise<GameState>;
   getCoachMessages(id: number): Promise<CoachMessage[]>;
+  /** Answers the coach's open question; its reply arrives on the stream. */
+  answerQuestion(id: number, text: string): Promise<void>;
+  /** Closes the coach's open question without a follow-up. */
+  skipQuestion(id: number): Promise<void>;
   /** Passive games only: undoes the player's last move and the opponent's reply. */
   takeback(id: number): Promise<GameState>;
   /** Active games only: shows a move without playing it. */
@@ -116,7 +132,11 @@ export class ApiError extends Error {
   }
 }
 
-export async function request<T = GameState>(path: string, method: "GET" | "POST", body?: object): Promise<T> {
+export async function request<T = GameState>(
+  path: string,
+  method: "GET" | "POST",
+  body?: object,
+): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     cache: "no-store",
@@ -126,11 +146,15 @@ export async function request<T = GameState>(path: string, method: "GET" | "POST
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);
     const detail =
-      payload && typeof payload === "object" && "detail" in payload && typeof payload.detail === "string"
+      payload &&
+      typeof payload === "object" &&
+      "detail" in payload &&
+      typeof payload.detail === "string"
         ? payload.detail
         : response.statusText;
     throw new ApiError(response.status, detail);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -148,17 +172,27 @@ export const httpGameApi: GameApi = {
   getGame: (id) => request(`/games/${id}`, "GET"),
   playMove: (id, uci) => request(`/games/${id}/moves`, "POST", { uci }),
   resign: (id) => request(`/games/${id}/resign`, "POST"),
-  getCoachMessages: (id) => request<CoachMessage[]>(`/games/${id}/coach/messages`, "GET"),
+  getCoachMessages: (id) =>
+    request<CoachMessage[]>(`/games/${id}/coach/messages`, "GET"),
+  answerQuestion: (id, text) =>
+    request<void>(`/games/${id}/coach/messages`, "POST", { text }),
+  skipQuestion: (id) =>
+    request<void>(`/games/${id}/coach/question/skip`, "POST"),
   takeback: (id) => request(`/games/${id}/takeback`, "POST"),
-  proposeMove: (id, uci) => request<Proposal>(`/games/${id}/moves`, "POST", { uci, propose: true }),
-  getPendingProposal: (id) => request<Proposal | null>(`/games/${id}/moves/proposal`, "GET"),
-  rethink: (id) => request<{ rethinks: number }>(`/games/${id}/moves/rethink`, "POST"),
+  proposeMove: (id, uci) =>
+    request<Proposal>(`/games/${id}/moves`, "POST", { uci, propose: true }),
+  getPendingProposal: (id) =>
+    request<Proposal | null>(`/games/${id}/moves/proposal`, "GET"),
+  rethink: (id) =>
+    request<{ rethinks: number }>(`/games/${id}/moves/rethink`, "POST"),
   lockIn: (id) => request(`/games/${id}/moves/lock`, "POST"),
   subscribe(id, handlers) {
     const source = new EventSource(`${API_BASE_URL}/games/${id}/coach/stream`);
-    const listen = <T,>(name: string, handle: (event: T) => void) =>
+    const listen = <T>(name: string, handle: (event: T) => void) =>
       source.addEventListener(name, (message) => {
-        const event = parseStreamEvent<T>((message as MessageEvent<string>).data);
+        const event = parseStreamEvent<T>(
+          (message as MessageEvent<string>).data,
+        );
         if (event) handle(event);
       });
     source.onerror = handlers.onConnectionLost;

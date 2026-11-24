@@ -713,3 +713,39 @@ async def test_real_regeneration_carries_no_meta_commentary() -> None:
     assert (
         validate_reply(CoachReply(text=result.text, fact_ids=result.fact_ids), context_for()) == []
     )
+
+
+def test_an_answer_reply_that_cites_no_fact_is_rejected_when_facts_exist() -> None:
+    context = context_for(event=CoachEvent.ANSWER_QUESTION, player_message="I wanted a fork")
+
+    assert kinds(reply("I see the idea, keep it up."), context) == {
+        GroundingErrorKind.NO_FACT_CITED
+    }
+    assert kinds(reply("Good thinking, Nc7+ forks.", FORK), context) == set()
+
+
+def test_an_answer_reply_may_cite_nothing_when_there_are_no_facts() -> None:
+    context = with_facts(event=CoachEvent.ANSWER_QUESTION, player_message="I liked it")
+
+    assert kinds(reply("Thanks for explaining."), context) == set()
+
+
+def test_other_events_may_cite_nothing() -> None:
+    assert kinds(reply("Keep developing."), context_for()) == set()
+
+
+def test_the_answer_template_acknowledges_the_answer_and_cites_a_fact() -> None:
+    context = context_for(event=CoachEvent.ANSWER_QUESTION, player_message="I wanted a fork")
+
+    template = template_reply(context)
+
+    assert template.text.startswith("Thanks for explaining. ")
+    assert template.fact_ids and validate_reply(template, context) == []
+
+
+def test_the_answer_template_with_no_facts_still_acknowledges() -> None:
+    context = with_facts(event=CoachEvent.ANSWER_QUESTION, player_message="I liked it")
+
+    template = template_reply(context)
+
+    assert template.text.startswith("Thanks for explaining. ") and template.fact_ids == []
