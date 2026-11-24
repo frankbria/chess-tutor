@@ -16,6 +16,7 @@ from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
 from chess_tutor.models import (
     CoachMessageSource,
     ConceptEvent,
+    ConceptSource,
     Game,
     GameResult,
     GameSummary,
@@ -82,7 +83,7 @@ def build_digest(session: Session, game: Game) -> GameDigest:
     ]
     names = session.scalars(
         select(ConceptEvent.concept)
-        .where(ConceptEvent.game_id == game.id)
+        .where(ConceptEvent.game_id == game.id, ConceptEvent.source == ConceptSource.MOVE)
         .order_by(ConceptEvent.ply)
     )
     return GameDigest(

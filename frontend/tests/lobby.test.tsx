@@ -42,6 +42,8 @@ function fakeApi(overrides: Partial<LobbyApi> = {}) {
     },
     listActiveGames: async () => [],
     getPlayer: async () => ({ rating: 1337 }),
+    getLastChoice: async () => ({ mode: null, color: null, opponent_elo: null, time_control: null }),
+    getLastGame: async () => null,
     ...overrides,
   };
   return { api, created };
@@ -56,7 +58,7 @@ export function wrapperFor(api: LobbyApi) {
 async function openDialog(api: LobbyApi) {
   const user = userEvent.setup();
   render(<NewGameDialog />, { wrapper: wrapperFor(api) });
-  await user.click(screen.getByRole("button", { name: "Play" }));
+  await user.click(screen.getByRole("button", { name: "Options" }));
   await screen.findByText("1350");
   return user;
 }
@@ -119,7 +121,7 @@ describe("NewGameDialog", () => {
     });
     const user = userEvent.setup();
     render(<NewGameDialog />, { wrapper: wrapperFor(api) });
-    await user.click(screen.getByRole("button", { name: "Play" }));
+    await user.click(screen.getByRole("button", { name: "Options" }));
     await waitFor(() => expect(screen.getByLabelText("Opponent Elo")).toHaveValue("1200"));
   });
 
@@ -142,10 +144,10 @@ describe("NewGameDialog", () => {
     });
     const user = userEvent.setup();
     render(<NewGameDialog />, { wrapper: wrapperFor(api) });
-    await user.click(screen.getByRole("button", { name: "Play" }));
+    await user.click(screen.getByRole("button", { name: "Options" }));
     await waitFor(() => expect(screen.getByLabelText("Opponent Elo")).toHaveValue("1200"));
     await user.keyboard("{Escape}");
-    await user.click(screen.getByRole("button", { name: "Play" }));
+    await user.click(screen.getByRole("button", { name: "Options" }));
     await waitFor(() => expect(screen.getByLabelText("Opponent Elo")).toHaveValue("1350"));
   });
 
@@ -153,7 +155,7 @@ describe("NewGameDialog", () => {
     const { api } = fakeApi({ getPlayer: async () => ({ rating: 100 }) });
     const user = userEvent.setup();
     render(<NewGameDialog />, { wrapper: wrapperFor(api) });
-    await user.click(screen.getByRole("button", { name: "Play" }));
+    await user.click(screen.getByRole("button", { name: "Options" }));
     await waitFor(() => expect(screen.getByLabelText("Opponent Elo")).toHaveValue("400"));
   });
 
@@ -242,7 +244,7 @@ describe("NewGameDialog default mode", () => {
         recent_games: [],
       })),
     );
-    await userEvent.setup().click(screen.getByRole("button", { name: "Play" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Options" }));
 
     await waitFor(() =>
       expect(screen.getByRole("radio", { name: /Active/ })).toBeChecked(),
@@ -251,7 +253,7 @@ describe("NewGameDialog default mode", () => {
 
   it("falls back to regular when settings cannot be loaded", async () => {
     renderWith(settingsApi(async () => Promise.reject(new Error("down"))));
-    await userEvent.setup().click(screen.getByRole("button", { name: "Play" }));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Options" }));
 
     await screen.findByText("1350");
     expect(screen.getByRole("radio", { name: /Regular/ })).toBeChecked();
@@ -263,7 +265,7 @@ describe("NewGameDialog default mode", () => {
       settingsApi(() => new Promise<SettingsState>((resolve) => (resolveSettings = resolve))),
     );
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Play" }));
+    await user.click(screen.getByRole("button", { name: "Options" }));
     await user.click(screen.getByRole("radio", { name: /Passive/ }));
 
     resolveSettings({

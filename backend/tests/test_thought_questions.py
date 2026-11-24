@@ -4,6 +4,8 @@ from test_passive_coach import COMMENT, GENERIC, UNGROUNDED, Harness, scripted, 
 
 from chess_tutor.api.events import CoachCommentEvent
 from chess_tutor.coach.prompt import CoachReply
+from chess_tutor.coach.reasoning import SYSTEM_PROMPT as REASONING_PROMPT
+from chess_tutor.coach.reasoning import ReasoningTags
 from chess_tutor.models import (
     CoachMessage,
     CoachMessageKind,
@@ -131,7 +133,7 @@ def test_a_second_key_moment_after_the_spacing_asks_again(settings: Settings) ->
 
 
 def test_an_answer_gets_a_grounded_reply_at_the_same_ply(settings: Settings) -> None:
-    model = scripted(REPLY)
+    model = scripted(REPLY, ReasoningTags(patterns=[]))
     with started(asking(settings), model) as harness:
         harness.play(4)
         harness.events()
@@ -151,7 +153,7 @@ def test_an_answer_gets_a_grounded_reply_at_the_same_ply(settings: Settings) -> 
         )
         [event] = [e for e in harness.events() if isinstance(e, CoachCommentEvent)]
         assert (event.kind.value, event.ply, event.text) == ("answer", 7, REPLY.text)
-    [call] = model.calls
+    [call] = [c for c in model.calls if c.system != REASONING_PROMPT]  # the rest tag reasoning
     assert '"event":"answer_question"' in call.messages[0].content
     assert ANSWER in call.messages[0].content
     assert '"locked_in":true' in call.messages[0].content
@@ -166,15 +168,13 @@ def test_an_ungrounded_reply_to_an_answer_is_regenerated(settings: Settings) -> 
         assert (last.text, last.source.value) == (REPLY.text, "llm_regenerated")
 
 
-def test_an_answer_needs_a_pending_question_and_some_text(settings: Settings) -> None:
+def test_an_answer_needs_some_text_and_an_existing_game(settings: Settings) -> None:
     with started(asking(settings), scripted(REPLY)) as harness:
         game = f"/games/{harness.game_id}/coach/messages"
-        assert harness.api.post(game, json={"text": ANSWER}).status_code == 409
         harness.play(4)
 
         assert harness.api.post(game, json={"text": "  "}).status_code == 422
         assert harness.api.post(game, json={"text": ANSWER}).status_code == 202
-        assert harness.api.post(game, json={"text": ANSWER}).status_code == 409
         assert harness.api.post("/games/999/coach/messages", json={"text": "x"}).status_code == 404
 
 
@@ -194,7 +194,5 @@ def test_taking_the_move_back_removes_its_question(settings: Settings) -> None:
         harness.play(4)
         harness.api.post(f"/games/{harness.game_id}/takeback")
 
-        game = f"/games/{harness.game_id}/coach/messages"
-        assert harness.api.post(game, json={"text": ANSWER}).status_code == 409
         with Session(harness.app.state.engine) as session:
             assert session.scalars(select(CoachMessage)).all() == []

@@ -35,7 +35,8 @@ export type CoachMessageKind =
   | "question"
   | "hint"
   | "answer"
-  | "skipped";
+  | "skipped"
+  | "asked";
 
 export interface CoachMessage {
   /** The 1-based ply of the move this message refers to. */
@@ -88,7 +89,7 @@ export interface GameApi {
   playMove(id: number, uci: string): Promise<GameState>;
   resign(id: number): Promise<GameState>;
   getCoachMessages(id: number): Promise<CoachMessage[]>;
-  /** Answers the coach's open question; its reply arrives on the stream. */
+  /** Answers the coach's open question, or asks it one when none is open; the reply arrives on the stream. */
   answerQuestion(id: number, text: string): Promise<void>;
   /** Closes the coach's open question without a follow-up. */
   skipQuestion(id: number): Promise<void>;
@@ -109,7 +110,28 @@ export interface GameApi {
 export interface NewGame {
   mode: GameMode;
   color: ColorChoice;
+  /** Omitted: the server picks one from the player's rating (plus a stretch in tutor modes). */
+  opponent_elo?: number;
+  /** Regular mode only; omitted for an untimed game. */
+  time_control?: string;
+}
+
+/** The player's previous new-game choice; each field is null until one has been made. */
+export interface LastChoice {
+  mode: GameMode | null;
+  color: ColorChoice | null;
+  opponent_elo: number | null;
+  time_control: string | null;
+}
+
+export interface LastGame {
+  game_id: number;
+  mode: GameMode;
+  player_color: PlayerColor;
   opponent_elo: number;
+  result: GameResult | null;
+  accuracy: number | null;
+  summary: string | null;
 }
 
 export interface Player {
@@ -121,6 +143,9 @@ export interface LobbyApi {
   createGame(newGame: NewGame): Promise<GameState>;
   listActiveGames(): Promise<GameState[]>;
   getPlayer(): Promise<Player>;
+  getLastChoice(): Promise<LastChoice>;
+  /** Null until the player has finished a game. */
+  getLastGame(): Promise<LastGame | null>;
 }
 
 export class ApiError extends Error {
@@ -211,4 +236,6 @@ export const httpLobbyApi: LobbyApi = {
   createGame: (newGame) => request("/games", "POST", newGame),
   listActiveGames: () => request<GameState[]>("/games?status=active", "GET"),
   getPlayer: () => request<Player>("/player", "GET"),
+  getLastChoice: () => request<LastChoice>("/player/last-choice", "GET"),
+  getLastGame: () => request<LastGame | null>("/player/last-game", "GET"),
 };

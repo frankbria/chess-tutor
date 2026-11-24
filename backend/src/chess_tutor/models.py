@@ -74,6 +74,7 @@ class CoachMessageKind(StrEnum):
     ANSWER = "answer"
     HINT = "hint"
     SKIPPED = "skipped"  # the player declined a coach question
+    ASKED = "asked"  # the player's own question to the coach
 
 
 class CoachMessageSource(StrEnum):

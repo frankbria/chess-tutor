@@ -273,6 +273,16 @@ export function PlayBoard({
     }
   };
 
+  const askCoach = async (text: string) => {
+    setMessage(null);
+    try {
+      await api.answerQuestion(gameId, text);
+      await loadHistory();
+    } catch (error) {
+      setMessage(errorMessage(error));
+    }
+  };
+
   const resign = async () => {
     setConfirmingResign(false);
     try {
@@ -467,7 +477,9 @@ export function PlayBoard({
             onSend={
               question
                 ? (text) => void closeQuestion("answer", text)
-                : undefined
+                : game.status === "active"
+                  ? (text) => void askCoach(text)
+                  : undefined
             }
             onSkip={
               question ? () => void closeQuestion("skipped", "") : undefined
