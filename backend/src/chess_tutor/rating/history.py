@@ -14,6 +14,10 @@ def mode_weight(weights: RatingWeights, mode: GameMode) -> float:
     }[mode]
 
 
+def takeback_multiplier(weights: RatingWeights, takebacks: int) -> float:
+    return max(weights.takeback_floor, 1 - weights.takeback_penalty * takebacks)
+
+
 def player_score(game: Game) -> float:
     if game.result is GameResult.DRAW:
         return 0.5
@@ -27,7 +31,8 @@ def record_rating(session: Session, game: Game, thresholds: Thresholds) -> None:
     if session.scalar(select(RatingHistory.id).where(RatingHistory.game_id == game.id)):
         return
     player = session.get_one(Player, game.player_id)
-    weight = mode_weight(thresholds.rating_weights, game.mode)
+    weights = thresholds.rating_weights
+    weight = mode_weight(weights, game.mode) * takeback_multiplier(weights, game.takeback_count)
     before = Rating(player.rating, player.rating_deviation, player.volatility)
     outcome = GameOutcome(
         game.opponent_elo, thresholds.opponent_rating_deviation, player_score(game)

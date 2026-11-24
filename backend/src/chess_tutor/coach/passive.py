@@ -11,6 +11,7 @@ import logging
 
 import chess
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import Session
 
 from chess_tutor.analysis.classification import MoveClassification
@@ -33,6 +34,7 @@ from chess_tutor.models import (
     Game,
     GameMode,
     GameStatus,
+    Move,
     PlayerColor,
 )
 from chess_tutor.openings.phase import detect_phase
@@ -138,9 +140,12 @@ class PassiveCoach:
 
     async def coach_move(self, game_id: int, ply: int) -> None:
         """Classify the player's move at `ply`, tag its concepts, and comment if it is notable."""
-        stored = await classify_stored_move(
-            self._engine, self._pool, game_id, ply, self._settings.thresholds.classification
-        )
+        try:
+            stored = await classify_stored_move(
+                self._engine, self._pool, game_id, ply, self._settings.thresholds.classification
+            )
+        except NoResultFound:  # the move was taken back before or while it was scored
+            return
         assert stored.classification is not None
         classification = MoveClassification(stored.classification)
         with Session(self._engine) as session:
@@ -156,6 +161,8 @@ class PassiveCoach:
         phase = detect_phase(board, self._settings.thresholds.phase)
         concepts = tag_mistake(delta, phase, board) if classification in MISTAKES else []
         with Session(self._engine) as session:
+            if not self._still_played(session, stored.id):
+                return
             player_id = session.get_one(Game, game_id).player_id
             record_concepts(session, player_id, game_id, ply, concepts)
             session.commit()
@@ -180,6 +187,8 @@ class PassiveCoach:
         )
         reply = await coach_reply_with_grounding(self._model, context)
         with Session(self._engine) as session:
+            if not self._still_played(session, stored.id):  # taken back while the LLM replied
+                return
             session.add(
                 CoachMessage(
                     game_id=game_id,
@@ -204,6 +213,10 @@ class PassiveCoach:
                 source=reply.source.value,
             ),
         )
+
+    def _still_played(self, session: Session, move_id: int) -> bool:
+        """A taken-back move's row is deleted, so a late result for it must not be stored."""
+        return session.get(Move, move_id) is not None
 
     def _due(self, game_id: int, ply: int) -> bool:
         """At most one comment per move, and one per `coach_comment_every_n_moves` player moves."""
