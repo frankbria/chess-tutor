@@ -28,7 +28,8 @@ jobs:
 
   backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A cold Stockfish cache can spend ~10 min on a stalled Ubuntu mirror before the ~5 min suite.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
