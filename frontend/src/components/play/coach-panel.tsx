@@ -14,40 +14,10 @@ import {
   type KeyboardEvent,
 } from "react";
 
+import { ClassificationBadge } from "@/components/play/classification-badge";
 import { Button } from "@/components/ui/button";
 import type { CoachMessage, CoachMessageKind } from "@/lib/game-api";
 import { cn } from "@/lib/utils";
-
-const CLASSIFICATION_STYLE: Record<
-  string,
-  { symbol: string; label: string; tone: string }
-> = {
-  brilliant: {
-    symbol: "!!",
-    label: "Brilliant",
-    tone: "bg-primary text-primary-foreground",
-  },
-  great: {
-    symbol: "!",
-    label: "Great move",
-    tone: "bg-primary/80 text-primary-foreground",
-  },
-  inaccuracy: {
-    symbol: "?!",
-    label: "Inaccuracy",
-    tone: "bg-accent text-accent-foreground",
-  },
-  mistake: {
-    symbol: "?",
-    label: "Mistake",
-    tone: "bg-destructive/80 text-white",
-  },
-  blunder: {
-    symbol: "??",
-    label: "Blunder",
-    tone: "bg-destructive text-white",
-  },
-};
 
 const KIND_STYLE: Record<CoachMessageKind, string> = {
   comment: "border-l-primary bg-card",
@@ -84,9 +54,6 @@ function Message({
   message: CoachMessage;
   san: string | undefined;
 }) {
-  const badge = message.classification
-    ? CLASSIFICATION_STYLE[message.classification]
-    : undefined;
   return (
     <li
       data-kind={message.kind}
@@ -101,17 +68,8 @@ function Message({
         <span className="rounded border px-1.5 py-0.5 capitalize">
           {message.phase}
         </span>
-        {badge && (
-          <span
-            title={badge.label}
-            aria-label={badge.label}
-            className={cn(
-              "rounded px-1.5 py-0.5 font-mono text-xs font-bold",
-              badge.tone,
-            )}
-          >
-            {badge.symbol}
-          </span>
+        {message.classification && (
+          <ClassificationBadge classification={message.classification} />
         )}
       </div>
       <p

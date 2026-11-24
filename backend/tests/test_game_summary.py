@@ -29,7 +29,7 @@ from chess_tutor.coach.llm import (
     StructuredReply,
 )
 from chess_tutor.coach.profile import build_coach_profile
-from chess_tutor.coach.summary import SummaryDraft
+from chess_tutor.coach.summary import SUMMARY_SYSTEM_PROMPT, SummaryDraft
 from chess_tutor.concepts.taxonomy import Concept
 from chess_tutor.main import create_app
 from chess_tutor.models import Game, GameMode, GameResult, GameStatus, GameSummary, PlayerColor
@@ -69,7 +69,12 @@ def test_a_finished_game_without_a_model_gets_a_summary_from_its_data(settings: 
     assert opening and f"in {opening}" in stored.summary
     assert "you lost" in stored.summary and "Mistake patterns tagged" in stored.summary
     assert (stored.game_id, stored.source.value) == (game_id, "template")
-    assert json.loads(stored.concepts) and "Move 4 was rated a blunder." in stored.key_moments
+    assert json.loads(stored.concepts) and "Your move 4 was rated a blunder." in stored.key_moments
+
+
+def test_the_summary_prompt_addresses_the_player_as_you() -> None:
+    assert 'address the player directly as "you"' in SUMMARY_SYSTEM_PROMPT
+    assert "The student" not in SUMMARY_SYSTEM_PROMPT
 
 
 def test_the_cheap_model_writes_the_summary_and_its_cost_is_recorded(settings: Settings) -> None:

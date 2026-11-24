@@ -132,7 +132,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T = GameState>(
+export async function request<T = GameState>(
   path: string,
   method: "GET" | "POST",
   body?: object,

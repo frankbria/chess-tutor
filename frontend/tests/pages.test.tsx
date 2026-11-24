@@ -50,9 +50,16 @@ describe("route placeholders", () => {
 
   it("review shows the game id", async () => {
     const html = await prerenderToHtml(
-      <ReviewPage params={Promise.resolve({ id: "game-42" })} searchParams={Promise.resolve({})} />,
+      <ReviewPage params={Promise.resolve({ id: "42" })} searchParams={Promise.resolve({})} />,
     );
-    expect(html).toMatch(/<h1[^>]*>Review <!-- -->game-42<\/h1>/);
+    expect(html).toMatch(/<h1[^>]*>Review <!-- -->42<\/h1>/);
+  });
+
+  it("review rejects a non-numeric id with notFound", async () => {
+    const html = await prerenderToHtml(
+      <ReviewPage params={Promise.resolve({ id: "abc" })} searchParams={Promise.resolve({})} />,
+    );
+    expect(html).toContain("NEXT_HTTP_ERROR_FALLBACK;404");
   });
 
   it("progress and settings render their headings", () => {

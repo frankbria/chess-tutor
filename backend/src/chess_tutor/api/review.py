@@ -12,6 +12,11 @@ from chess_tutor.review.report import build_review
 router = APIRouter(prefix="/games", tags=["review"])
 
 
+class PlyWinProbabilityResponse(BaseModel):
+    ply: int
+    win_probability: float
+
+
 class KeyMomentResponse(BaseModel):
     ply: int
     move_number: int
@@ -47,6 +52,7 @@ class ConceptHitResponse(BaseModel):
 class ReviewResponse(BaseModel):
     accuracy: float | None
     performance_rating: float | None
+    win_probabilities: list[PlyWinProbabilityResponse]
     key_moments: list[KeyMomentResponse]
     reasoning: list[ReasoningResponse]
     summary: SummaryResponse | None = Field(description="Null when no summary was stored")
@@ -66,5 +72,7 @@ async def get_review(game_id: int, request: Request) -> ReviewResponse:
         session.expunge(game)
     if game.status is not GameStatus.FINISHED:
         raise HTTPException(409, "the review is available once the game is over")
-    review = await build_review(engine, pool, game)
+    review = await build_review(
+        engine, pool, game, request.app.state.settings.thresholds.classification
+    )
     return ReviewResponse.model_validate(review, from_attributes=True)

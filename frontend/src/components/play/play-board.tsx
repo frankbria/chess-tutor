@@ -514,6 +514,7 @@ export function PlayBoard({
       />
       {game.status === "finished" && game.result && (
         <GameOverDialog
+          gameId={gameId}
           open={!dialogDismissed}
           result={game.result}
           reason={
