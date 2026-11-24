@@ -1,7 +1,9 @@
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -23,8 +25,23 @@ from chess_tutor.coach.llm import (
     Usage,
 )
 from chess_tutor.coach.prompt import CoachReply
+from chess_tutor.concepts.state import new_state
+from chess_tutor.concepts.taxonomy import Concept
 from chess_tutor.main import create_app
-from chess_tutor.models import CoachMessage, ConceptEvent, ConceptState, Game, Move
+from chess_tutor.models import (
+    CoachMessage,
+    CoachMessageKind,
+    CoachMessageSource,
+    CoachRole,
+    ConceptEvent,
+    ConceptState,
+    ConceptStatus,
+    Game,
+    GameMode,
+    GameStatus,
+    Move,
+    PlayerColor,
+)
 from chess_tutor.settings import Settings
 
 # 1.e4 e5 2.Nf3 Nc6 3.Bc4 Nf6 4.Nxe5?? Nxe5 5.Bxf7+? Kxf7: the 4th and 5th moves are notable.
@@ -280,3 +297,44 @@ def test_two_pending_moves_then_a_resign_still_refresh_the_concepts(settings: Se
         with Session(harness.app.state.engine) as session:
             assert session.scalars(select(ConceptState.concept)).all()
             assert session.get_one(Game, harness.game_id).accuracy is not None
+
+
+def test_a_passive_comment_carries_the_profile_and_the_stored_phrasings(
+    settings: Settings,
+) -> None:
+    model = scripted(COMMENT)
+    with started(settings, model) as harness:
+        with Session(harness.app.state.engine) as session:
+            row = new_state(1, Concept.HANGING_PIECE.value)
+            row.state, row.count = ConceptStatus.RECURRING, 3
+            row.updated_at = datetime(2026, 11, 23, tzinfo=UTC)
+            earlier = Game(
+                player_id=1,
+                mode=GameMode.PASSIVE,
+                player_color=PlayerColor.WHITE,
+                opponent_engine="maia3",
+                opponent_elo=1200,
+                status=GameStatus.FINISHED,
+            )
+            session.add_all([row, earlier])
+            session.flush()
+            session.add(
+                CoachMessage(
+                    game_id=earlier.id,
+                    ply=7,
+                    role=CoachRole.COACH,
+                    kind=CoachMessageKind.COMMENT,
+                    text="Yesterday's wording about loose pieces.",
+                    fact_ids="[]",
+                    source=CoachMessageSource.LLM,
+                    concepts='["hanging_piece"]',
+                )
+            )
+            session.commit()
+
+        harness.play(4)
+
+    payload = json.loads(model.calls[0].messages[0].content)
+    entry = next(item for item in payload["profile"] if item["concept"] == "hanging_piece")
+    assert entry["state"] == "recurring" and "3 games" in entry["style"]
+    assert entry["recent_phrasings"] == ["Yesterday's wording about loose pieces."]
