@@ -43,6 +43,7 @@ from chess_tutor.models import (
     CoachMessageKind,
     CoachMessageSource,
     CoachRole,
+    ConceptEvent,
     Game,
     GameMode,
     GameStatus,
@@ -109,7 +110,9 @@ class PassiveCoach:
         self._spawn(game_id, lambda: self.reply_to_answer(game_id, ply, text), "answering")
 
     def skip_question(self, game_id: int) -> None:
-        self._close_question(game_id, CoachMessageKind.SKIPPED, "")
+        """A skipped question still owes the player the normal comment on that move."""
+        ply = self._close_question(game_id, CoachMessageKind.SKIPPED, "")
+        self.schedule(game_id, ply)
 
     def _close_question(self, game_id: int, kind: CoachMessageKind, text: str) -> int:
         with Session(self._engine) as session:
@@ -246,7 +249,13 @@ class PassiveCoach:
             if not self._still_played(session, stored):
                 return
             game = session.get_one(Game, game_id)
-            record_concepts(session, game.player_id, game_id, ply, concepts)
+            already_recorded = session.scalars(
+                select(ConceptEvent.id).where(
+                    ConceptEvent.game_id == game_id, ConceptEvent.ply == ply
+                )
+            ).first()
+            if not already_recorded:  # a skipped question comes back through this path
+                record_concepts(session, game.player_id, game_id, ply, concepts)
             session.commit()
             ask = (
                 self._model is not None

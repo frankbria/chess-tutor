@@ -29,7 +29,8 @@ equal to the object's `type`:
   per `thought_question_every_n_moves` player moves and never while one is open.
   `POST /games/{id}/coach/messages` `{text}` answers it (202; 409 if none is open): the coach's
   grounded response follows as a `kind` "answer" event at the same ply.
-  `POST /games/{id}/coach/question/skip` (204) closes it without a follow-up.
+  `POST /games/{id}/coach/question/skip` (204) closes it and the normal comment on that move
+  follows as a `kind` "comment" event.
 
 - `coach_comment` (Active mode, when the coach is on) also carries `hint_level`: after a proposal,
   1 (nudge), 2 (pointer) or 3 (consequence) by the rethink count, never naming the best move, with

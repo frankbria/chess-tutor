@@ -4,7 +4,7 @@ from test_passive_coach import COMMENT, GENERIC, UNGROUNDED, Harness, scripted, 
 
 from chess_tutor.api.events import CoachCommentEvent
 from chess_tutor.coach.prompt import CoachReply
-from chess_tutor.models import CoachMessage
+from chess_tutor.models import CoachMessage, ConceptEvent, Game
 from chess_tutor.settings import Settings
 
 ANSWER = "I thought my knight could win a pawn."
@@ -57,20 +57,31 @@ def test_questions_are_off_when_the_spacing_is_zero(settings: Settings) -> None:
         assert stored(harness) == [(7, "coach", "comment")]
 
 
-def test_skipping_closes_the_question_and_asks_no_follow_up(settings: Settings) -> None:
-    with started(asking(settings), scripted(GENERIC)) as harness:
+def test_skipping_closes_the_question_and_gives_the_normal_comment(settings: Settings) -> None:
+    model = scripted(COMMENT, GENERIC)
+    with started(asking(settings), model) as harness:
         harness.play(4)
+        harness.events()
         game = f"/games/{harness.game_id}/coach"
 
         assert harness.api.post(f"{game}/question/skip").status_code == 204
         assert harness.api.post(f"{game}/question/skip").status_code == 409
-        harness.play(1)  # a second key moment, but inside the spacing
+        assert harness.api.portal is not None
+        harness.api.portal.call(harness.app.state.passive_coach.wait_until_idle)
 
         assert stored(harness) == [
             (7, "coach", "question"),
             (7, "player", "skipped"),
-            (9, "coach", "comment"),
+            (7, "coach", "comment"),
         ]
+        assert harness.comments()[-1].text == COMMENT.text
+        [event] = [e for e in harness.events() if isinstance(e, CoachCommentEvent)]
+        assert (event.kind.value, event.ply, event.text) == ("comment", 7, COMMENT.text)
+        with Session(harness.app.state.engine) as session:
+            assert len(session.scalars(select(ConceptEvent)).all()) == 1  # not recorded twice
+            assert session.get_one(Game, harness.game_id).llm_cost > 0
+        harness.play(1)  # a second key moment inside the spacing gets no new question
+        assert [kind for _, _, kind in stored(harness)].count("question") == 1
 
 
 def test_an_unanswered_question_blocks_the_next_one(settings: Settings) -> None:
