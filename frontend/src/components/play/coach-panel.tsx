@@ -21,6 +21,7 @@ const KIND_STYLE: Record<CoachMessageKind, string> = {
   question: "border-l-accent bg-accent/15",
   hint: "border-l-secondary-foreground bg-secondary",
   answer: "border-l-muted-foreground bg-muted",
+  skipped: "border-l-muted-foreground bg-muted/50",
 };
 
 const KIND_LABEL: Record<CoachMessageKind, string> = {
@@ -28,6 +29,7 @@ const KIND_LABEL: Record<CoachMessageKind, string> = {
   question: "Question",
   hint: "Hint",
   answer: "Answer",
+  skipped: "Skipped",
 };
 
 /** "3. Nxe5" for a white ply, "3... Nf6" for black; falls back to the ply when the move is unknown. */
@@ -58,7 +60,9 @@ function Message({ message, san }: { message: CoachMessage; san: string | undefi
           </span>
         )}
       </div>
-      <p className="break-words">{message.text}</p>
+      <p className={cn("break-words", message.kind === "skipped" && "italic text-muted-foreground")}>
+        {message.kind === "skipped" ? "You skipped this question." : message.text}
+      </p>
     </li>
   );
 }
@@ -69,10 +73,12 @@ interface CoachPanelProps {
   moves: string[];
   /** Enables the text input; omit until the player can answer or ask the coach. */
   onSend?: (text: string) => void;
+  /** Offers a Skip button for the coach's open question. */
+  onSkip?: () => void;
 }
 
 /** A side panel from `md` up; on a phone a bar above the bottom nav that expands into the history. */
-export function CoachPanel({ messages, moves, onSend }: CoachPanelProps) {
+export function CoachPanel({ messages, moves, onSend, onSkip }: CoachPanelProps) {
   const [expanded, setExpanded] = useState(false);
   const [seenCount, setSeenCount] = useState(0);
   const [draft, setDraft] = useState("");
@@ -165,12 +171,17 @@ export function CoachPanel({ messages, moves, onSend }: CoachPanelProps) {
             value={draft}
             disabled={!onSend}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder={onSend ? "Ask the coach…" : "Questions and answers unlock in a later update"}
+            placeholder={onSend ? (onSkip ? "What was your thought?" : "Ask the coach…") : "Questions and answers unlock in a later update"}
             className="h-10 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm outline-none transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:opacity-50"
           />
           <Button type="submit" disabled={!onSend || !draft.trim()}>
             Send
           </Button>
+          {onSkip && (
+            <Button type="button" variant="outline" onClick={onSkip}>
+              Skip
+            </Button>
+          )}
         </form>
       </div>
     </section>

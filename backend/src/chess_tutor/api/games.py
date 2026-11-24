@@ -23,6 +23,14 @@ equal to the object's `type`:
   seconds), so the comment comes first; past that cap it is only stored. `source` is `llm`,
   `llm_regenerated` or `template`.
 
+- `coach_comment` also carries `kind`: `comment` (default), `question` or `answer`. In Passive mode
+  the coach asks "what were you thinking?" (`kind` "question", no LLM call, `classification` the
+  move's label) in place of a comment on a Mistake, Blunder, Great or Brilliant move, at most once
+  per `thought_question_every_n_moves` player moves and never while one is open.
+  `POST /games/{id}/coach/messages` `{text}` answers it (202; 409 if none is open): the coach's
+  grounded response follows as a `kind` "answer" event at the same ply.
+  `POST /games/{id}/coach/question/skip` (204) closes it without a follow-up.
+
 - `coach_comment` (Active mode, when the coach is on) also carries `hint_level`: after a proposal,
   1 (nudge), 2 (pointer) or 3 (consequence) by the rethink count, never naming the best move, with
   `classification` "hint"; a fine move is silent apart from an occasional board-feature remark
@@ -41,13 +49,14 @@ import chess
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
 from chess_tutor.coach.active import ActiveTutor
 from chess_tutor.coach.passive import PassiveCoach
+from chess_tutor.coach.thought import NoPendingQuestionError
 from chess_tutor.games.clock import ClockState
 from chess_tutor.games.service import (
     ColorChoice,
@@ -96,6 +105,7 @@ ERROR_STATUS: tuple[tuple[type[GameError], int], ...] = (
     (NoProposalError, 409),
     (ProposalPendingError, 409),
     (GameNotActiveError, 409),
+    (NoPendingQuestionError, 409),
     (OpponentUnavailableError, 503),
 )
 
@@ -403,6 +413,25 @@ def coach_messages(
         )
         for message, classification, fen_before in rows
     ]
+
+
+class AnswerRequest(BaseModel):
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+
+
+@router.post("/{game_id}/coach/messages", status_code=202)
+async def answer_coach_question(
+    game_id: Annotated[int, Depends(existing_game_id)], body: AnswerRequest, coach: Coach
+) -> None:
+    """Answer the coach's open question; its reply follows later as a `coach_comment` event."""
+    coach.answer_question(game_id, body.text)
+
+
+@router.post("/{game_id}/coach/question/skip", status_code=204)
+async def skip_coach_question(
+    game_id: Annotated[int, Depends(existing_game_id)], coach: Coach
+) -> None:
+    coach.skip_question(game_id)
 
 
 @router.get("/{game_id}/coach/stream", response_class=EventSourceResponse)

@@ -24,6 +24,15 @@ const withoutRepeats = (known: CoachMessage[], incoming: CoachMessage[]) =>
 const errorMessage = (error: unknown) =>
   error instanceof ApiError ? error.message : "Could not reach the game server. Try again.";
 
+/** The coach's latest question, unless the player has already answered or skipped it. */
+function openQuestion(messages: CoachMessage[]) {
+  const index = messages.findLastIndex((message) => message.kind === "question");
+  if (index < 0) return undefined;
+  const question = messages[index];
+  const closed = messages.slice(index + 1).some((message) => message.role === "player" && message.ply === question.ply);
+  return closed ? undefined : question;
+}
+
 export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?: GameApi }) {
   const [game, setGame] = useState<GameState | null>(null);
   const [thinking, setThinking] = useState(false);
@@ -59,8 +68,8 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   useEffect(() => {
     api.getGame(gameId).then(accept, (error: unknown) => setLoadError(errorMessage(error)));
     return api.subscribe(gameId, {
-      onCoachComment: ({ ply, text, classification, phase }) => {
-        const comment: CoachMessage = { ply, role: "coach", kind: "comment", text, classification, phase };
+      onCoachComment: ({ ply, text, classification, phase, kind = "comment" }) => {
+        const comment: CoachMessage = { ply, role: "coach", kind, text, classification, phase };
         setCoachMessages((known) => [...known, ...withoutRepeats(known, [comment])]);
       },
       onSnapshot: () => {
@@ -100,6 +109,19 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
       await resync();
     } finally {
       setThinking(false);
+    }
+  };
+
+  const question = game?.status === "active" ? openQuestion(coachMessages) : undefined;
+  const closeQuestion = async (kind: "answer" | "skipped", text: string) => {
+    if (!question) return;
+    setMessage(null);
+    try {
+      await (kind === "answer" ? api.answerQuestion(gameId, text) : api.skipQuestion(gameId));
+      const closing: CoachMessage = { ...question, role: "player", kind, text };
+      setCoachMessages((known) => [...known, ...withoutRepeats(known, [closing])]);
+    } catch (error) {
+      setMessage(errorMessage(error));
     }
   };
 
@@ -200,7 +222,14 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
           </p>
         )}
         <MoveList moves={game.moves} />
-        {hasCoach && <CoachPanel messages={coachMessages} moves={game.moves} />}
+        {hasCoach && (
+          <CoachPanel
+            messages={coachMessages}
+            moves={game.moves}
+            onSend={question ? (text) => void closeQuestion("answer", text) : undefined}
+            onSkip={question ? () => void closeQuestion("skipped", "") : undefined}
+          />
+        )}
         {game.status === "active" && game.mode === "passive" && (
           <Button
             variant="outline"

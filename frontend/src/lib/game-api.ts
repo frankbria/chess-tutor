@@ -30,7 +30,7 @@ export interface GameState {
 
 export type GamePhase = "opening" | "middlegame" | "endgame";
 
-export type CoachMessageKind = "comment" | "question" | "hint" | "answer";
+export type CoachMessageKind = "comment" | "question" | "hint" | "answer" | "skipped";
 
 export interface CoachMessage {
   /** The 1-based ply of the move this message refers to. */
@@ -45,7 +45,14 @@ export interface CoachMessage {
 }
 
 export interface GameStreamHandlers {
-  onCoachComment: (event: { ply: number; text: string; classification: string; phase: GamePhase }) => void;
+  onCoachComment: (event: {
+    ply: number;
+    text: string;
+    classification: string;
+    phase: GamePhase;
+    /** Absent on older servers; a plain comment then. */
+    kind?: CoachMessageKind;
+  }) => void;
   onSnapshot: (event: { fen: string; status: string }) => void;
   onOpponentMove: (event: { uci: string; san: string; fen: string; clock: ClockState | null }) => void;
   onGameOver: (event: { result: GameResult; reason: string }) => void;
@@ -59,6 +66,10 @@ export interface GameApi {
   playMove(id: number, uci: string): Promise<GameState>;
   resign(id: number): Promise<GameState>;
   getCoachMessages(id: number): Promise<CoachMessage[]>;
+  /** Answers the coach's open question; its reply arrives on the stream. */
+  answerQuestion(id: number, text: string): Promise<void>;
+  /** Closes the coach's open question without a follow-up. */
+  skipQuestion(id: number): Promise<void>;
   /** Passive games only: undoes the player's last move and the opponent's reply. */
   takeback(id: number): Promise<GameState>;
   /** Returns the unsubscribe function. */
@@ -106,6 +117,7 @@ async function request<T = GameState>(path: string, method: "GET" | "POST", body
         : response.statusText;
     throw new ApiError(response.status, detail);
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
@@ -124,6 +136,8 @@ export const httpGameApi: GameApi = {
   playMove: (id, uci) => request(`/games/${id}/moves`, "POST", { uci }),
   resign: (id) => request(`/games/${id}/resign`, "POST"),
   getCoachMessages: (id) => request<CoachMessage[]>(`/games/${id}/coach/messages`, "GET"),
+  answerQuestion: (id, text) => request<void>(`/games/${id}/coach/messages`, "POST", { text }),
+  skipQuestion: (id) => request<void>(`/games/${id}/coach/question/skip`, "POST"),
   takeback: (id) => request(`/games/${id}/takeback`, "POST"),
   subscribe(id, handlers) {
     const source = new EventSource(`${API_BASE_URL}/games/${id}/coach/stream`);

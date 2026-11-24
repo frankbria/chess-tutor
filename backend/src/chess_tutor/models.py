@@ -73,6 +73,7 @@ class CoachMessageKind(StrEnum):
     QUESTION = "question"
     ANSWER = "answer"
     HINT = "hint"
+    SKIPPED = "skipped"  # the player declined a coach question
 
 
 class CoachMessageSource(StrEnum):

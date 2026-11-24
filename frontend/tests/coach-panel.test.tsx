@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { CoachPanel } from "@/components/play/coach-panel";
 import { PlayBoard } from "@/components/play/play-board";
-import type { CoachMessage, GameApi, GameState, GameStreamHandlers } from "@/lib/game-api";
+import { ApiError, type CoachMessage, type GameApi, type GameState, type GameStreamHandlers } from "@/lib/game-api";
 
 vi.mock("@/components/play/chessboard", () => ({ Chessboard: () => <div data-testid="board" /> }));
 
@@ -39,18 +39,21 @@ function game(overrides: Partial<GameState> = {}): GameState {
   };
 }
 
-function fakeApi(initial: GameState, history: CoachMessage[] = []) {
+function fakeApi(initial: GameState, history: CoachMessage[] = [], overrides: Partial<GameApi> = {}) {
   let handlers: GameStreamHandlers | undefined;
   const api: GameApi = {
     getGame: async () => initial,
     playMove: async () => initial,
     resign: async () => initial,
     getCoachMessages: async () => history,
+    answerQuestion: async () => undefined,
+    skipQuestion: async () => undefined,
     takeback: async () => initial,
     subscribe: (_id, next) => {
       handlers = next;
       return () => undefined;
     },
+    ...overrides,
   };
   return { api, stream: () => handlers! };
 }
@@ -160,6 +163,79 @@ describe("CoachPanel", () => {
     await user.click(screen.getByRole("button", { name: "Send" }));
     expect(onSend).toHaveBeenCalledWith("why?");
     expect(screen.getByLabelText("Message the coach")).toHaveValue("");
+  });
+});
+
+const question = () => message({ kind: "question", text: "What were you thinking when you played Nxe5?" });
+
+describe("PlayBoard coach questions", () => {
+  it("renders a streamed question and unlocks the input and Skip for it", async () => {
+    const { api, stream } = fakeApi(game());
+    render(<PlayBoard gameId={1} api={api} />);
+    await screen.findByTestId("board");
+    expect(screen.getByLabelText("Message the coach")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
+
+    act(() => stream().onCoachComment({ ply: 7, text: question().text, classification: "blunder", phase: "middlegame", kind: "question" }));
+
+    expect(screen.getByText("Question", { selector: "span" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Message the coach")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeInTheDocument();
+  });
+
+  it("sends the answer, shows it, and locks the input until the coach reply arrives", async () => {
+    const user = userEvent.setup();
+    const answerQuestion = vi.fn(async () => undefined);
+    const { api, stream } = fakeApi(game(), [question()], { answerQuestion });
+    render(<PlayBoard gameId={1} api={api} />);
+    await user.type(await screen.findByLabelText("Message the coach"), "I wanted a pawn");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(answerQuestion).toHaveBeenCalledWith(1, "I wanted a pawn");
+    expect(await screen.findByText("I wanted a pawn", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Message the coach")).toBeDisabled();
+
+    act(() => stream().onCoachComment({ ply: 7, text: "I see the idea, but look at e5.", classification: "blunder", phase: "middlegame", kind: "answer" }));
+    expect(screen.getByText("I see the idea, but look at e5.", { selector: "p" })).toBeInTheDocument();
+  });
+
+  it("skips the question and shows that it was skipped", async () => {
+    const user = userEvent.setup();
+    const skipQuestion = vi.fn(async () => undefined);
+    const { api } = fakeApi(game(), [question()], { skipQuestion });
+    render(<PlayBoard gameId={1} api={api} />);
+    await user.click(await screen.findByRole("button", { name: "Skip" }));
+
+    expect(skipQuestion).toHaveBeenCalledWith(1);
+    expect(await screen.findByText("You skipped this question.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
+  });
+
+  it("does not offer a question that history shows as closed, or once the game is over", async () => {
+    const closed = [question(), message({ role: "player", kind: "answer", text: "A pawn" })];
+    const { api } = fakeApi(game(), closed);
+    const { unmount } = render(<PlayBoard gameId={1} api={api} />);
+    await screen.findByText("A pawn", { selector: "p" });
+    expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
+    unmount();
+
+    const over = fakeApi(game({ status: "finished", result: "0-1" }), [question()]);
+    render(<PlayBoard gameId={1} api={over.api} />);
+    await screen.findByText(question().text, { selector: "p" });
+    expect(screen.queryByRole("button", { name: "Skip" })).not.toBeInTheDocument();
+  });
+
+  it("shows the server's reason when the answer is refused", async () => {
+    const user = userEvent.setup();
+    const refuse = async () => {
+      throw new ApiError(409, "the coach has not asked a question");
+    };
+    const { api } = fakeApi(game(), [question()], { answerQuestion: refuse });
+    render(<PlayBoard gameId={1} api={api} />);
+    await user.type(await screen.findByLabelText("Message the coach"), "hi");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("the coach has not asked a question");
   });
 });
 
