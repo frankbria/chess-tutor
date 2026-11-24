@@ -6,7 +6,7 @@ from test_passive_coach import PRICED, DownLanguageModel, Harness, scripted, sta
 from test_thought_questions import REPLY, answer, asking
 
 from chess_tutor.coach.llm import LanguageModelError, ModelTier
-from chess_tutor.coach.reasoning import ReasoningPattern, ReasoningTags
+from chess_tutor.coach.reasoning import ReasoningPattern, ReasoningTags, tag_reasoning
 from chess_tutor.coach.summary import SummaryDraft
 from chess_tutor.models import ConceptEvent, ConceptSource, Game, GameSummary
 from chess_tutor.settings import Settings
@@ -93,3 +93,12 @@ def test_reasoning_patterns_do_not_break_the_game_summary_or_concept_states(
         assert states == ["hanging_piece"]
         with Session(harness.app.state.engine) as session:
             assert "no_clear_plan" not in session.scalars(select(GameSummary)).one().concepts
+
+
+async def test_without_a_model_nothing_is_stored(settings: Settings) -> None:
+    with started(asking(settings), scripted()) as harness:
+        harness.play(4)
+
+        await tag_reasoning(harness.app.state.engine, None, harness.game_id, 7, "a pawn")
+
+        assert reasoning_events(harness) == []
