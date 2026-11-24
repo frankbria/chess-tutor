@@ -9,6 +9,7 @@ from scripted_language_model import ScriptedLanguageModel
 
 from chess_tutor.analysis.move_delta import move_delta
 from chess_tutor.coach.llm import AnthropicLanguageModel, ModelTier
+from chess_tutor.coach.profile import CoachProfile, ConceptProfile, style_directive
 from chess_tutor.coach.prompt import (
     SYSTEM_PROMPT,
     CoachContext,
@@ -17,10 +18,11 @@ from chess_tutor.coach.prompt import (
     build_coach_request,
     generate_coach_reply,
 )
+from chess_tutor.concepts.taxonomy import Concept
 from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.facts.models import FactPacket
 from chess_tutor.facts.packet import build_fact_packet
-from chess_tutor.models import GameMode
+from chess_tutor.models import ConceptStatus, GameMode
 from chess_tutor.openings.phase import GamePhase
 from chess_tutor.settings import Settings
 
@@ -41,7 +43,18 @@ def fork_context(**overrides: object) -> CoachContext:
         "best_line": ["Nc7+", "Kd7", "Nxa8"],
         "hint_level": 2,
         "active_pre_lock_in": True,
-        "profile_summary": "Often misses knight forks.",
+        "profile": CoachProfile(
+            concepts=[
+                ConceptProfile(
+                    concept=Concept.MISSED_FORK,
+                    label="Missing a fork",
+                    state=ConceptStatus.RECURRING,
+                    count=3,
+                    style=style_directive(Concept.MISSED_FORK, ConceptStatus.RECURRING, 3),
+                    recent_phrasings=["Watch the knight."],
+                )
+            ]
+        ),
         "recent_coach_messages": ["Watch the knight."],
     }
     return CoachContext.model_validate(values | overrides)
@@ -227,3 +240,14 @@ def test_allowed_references_list_the_visible_squares_and_moves_only() -> None:
     assert "c7" not in pre["squares"]
     assert {"Kf2", "Nc7+", "Nxa8"} <= set(post["moves"])
     assert "c7" in post["squares"]
+
+
+def test_the_profile_is_sent_compactly_and_omitted_when_absent() -> None:
+    payload = json.loads(build_coach_request(fork_context())[1][0].content)
+    (entry,) = payload["profile"]
+
+    assert entry["concept"] == "missed_fork"
+    assert entry["recent_phrasings"] == ["Watch the knight."]
+    assert "profile" not in json.loads(
+        build_coach_request(fork_context(profile=None))[1][0].content
+    )

@@ -11,6 +11,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
 
 from chess_tutor.coach.llm import ChatMessage, LanguageModel, ModelTier, StructuredReply
+from chess_tutor.coach.profile import CoachProfile
 from chess_tutor.facts.models import Fact, FactPacket
 from chess_tutor.models import GameMode
 from chess_tutor.openings.phase import PHASE_FOCUS, GamePhase
@@ -41,6 +42,9 @@ Level 3 (consequence): you may state the verified outcome from the facts.
 hint, even though the student asked a question.
 - ask_thought: ask one short question about what the student was thinking.
 
+Speak as a coach who simply sees the board: never mention facts, fact ids, the context, the \
+engine or any data you were given.
+
 When `player_message` gives the student's reasoning, respond to it: "Exactly right" when it \
 holds, "I see the idea, but..." or "Not a bad idea, but you're missing..." when a fact shows \
 something it overlooks.
@@ -48,8 +52,9 @@ something it overlooks.
 When `mode` is active and `locked_in` is false, the best move is not in the context and you must \
 not suggest or hint at a specific one. Guide with questions and what the facts show.
 
-At higher `repetition` for a concept, be shorter and ask Socratic questions instead of \
-explaining. Vary your wording from `recent_coach_messages`. The phase's `focus` list is a menu \
+When `profile` is present, it lists the concepts behind this move. For each, follow its `style` \
+directive, and never reuse the wording of its `recent_phrasings`: say it differently. Vary your \
+wording from `recent_coach_messages` too. The phase's `focus` list is a menu \
 of things worth noticing, not a checklist.\
 """
 
@@ -75,7 +80,7 @@ class CoachContext(BaseModel):
     best_move_san: str | None = None
     best_line: list[str] = Field(default_factory=list)  # SAN, starting with the best move
     hint_level: int | None = Field(default=None, ge=1, le=3)  # Active mode only
-    profile_summary: str = ""
+    profile: CoachProfile | None = None
     recent_coach_messages: list[str] = Field(default_factory=list)
     player_message: str | None = None
 
@@ -141,7 +146,11 @@ def _context_payload(context: CoachContext) -> dict[str, object]:
         payload["best_line"] = context.best_line
     optional: dict[str, object] = {
         "hint_level": context.hint_level,
-        "profile": context.profile_summary,
+        "profile": (
+            context.profile.model_dump(mode="json", exclude_defaults=True)["concepts"]
+            if context.profile
+            else None
+        ),
         "recent_coach_messages": context.recent_coach_messages[-RECENT_MESSAGES_SHOWN:],
         "player_message": context.player_message,
     }
