@@ -125,9 +125,12 @@ export function PlayBoard({
     setGame(next);
   };
 
-  // A failed request leaves the optimistic move on screen, so let the server's shorter list win.
-  const resyncAfterFailure = async () => {
-    plyCount.current = 0;
+  // A failed request must not leave the unaccepted move on screen, even if the resync fails too.
+  const restoreAfterFailure = async (premove: GameState | null) => {
+    if (premove) {
+      plyCount.current = premove.moves.length;
+      setGame(premove);
+    }
     await resync();
   };
 
@@ -267,6 +270,7 @@ export function PlayBoard({
     setMessage(null);
     setSettling(true);
     setThinking(true);
+    const premove = game;
     if (proposal) showMove(proposal.uci);
     try {
       accept(await api.lockIn(gameId));
@@ -274,7 +278,7 @@ export function PlayBoard({
       setCoachMessages(withoutDrafts);
     } catch (error) {
       setMessage(errorMessage(error));
-      await resyncAfterFailure();
+      await restoreAfterFailure(premove);
       // The server may still hold the proposal; keep the recovery controls only if it does.
       setProposal(await api.getPendingProposal(gameId).catch(() => proposal));
     } finally {
@@ -287,12 +291,13 @@ export function PlayBoard({
     if (game?.mode === "active") return proposeMove(uci);
     setMessage(null);
     setThinking(true);
+    const premove = game;
     showMove(uci);
     try {
       accept(await api.playMove(gameId, uci));
     } catch (error) {
       setMessage(errorMessage(error));
-      await resyncAfterFailure();
+      await restoreAfterFailure(premove);
     } finally {
       setThinking(false);
     }

@@ -219,6 +219,30 @@ describe("PlayBoard", () => {
       expect(screen.getByText("No moves yet.")).toBeInTheDocument();
       expect(screen.getByTestId("locked")).toHaveTextContent("open");
     });
+
+    it("restores the pre-move position when the request and the resync both fail", async () => {
+      let loads = 0;
+      const { api } = fakeApi(game(), {
+        getGame: async () => {
+          if (loads++ === 0) return game();
+          throw new Error("network down");
+        },
+        playMove: async () => {
+          throw new Error("network down");
+        },
+      });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await waitFor(() => expect(loads).toBe(2));
+      await waitFor(() =>
+        expect(screen.getByTestId("board")).toHaveAttribute(
+          "data-fen",
+          START_FEN,
+        ),
+      );
+      expect(screen.getByText("No moves yet.")).toBeInTheDocument();
+      expect(screen.getByTestId("locked")).toHaveTextContent("open");
+    });
   });
 
   it("sends a promotion move with the chosen piece", async () => {
@@ -729,6 +753,32 @@ describe("board helpers", () => {
       expect(await screen.findByRole("alert")).toHaveTextContent(
         "no move has been proposed",
       );
+      await waitFor(() =>
+        expect(screen.getByTestId("board")).toHaveAttribute(
+          "data-fen",
+          START_FEN,
+        ),
+      );
+      expect(screen.getByText("No moves yet.")).toBeInTheDocument();
+    });
+
+    it("restores the pre-move position when locking in and the resync both fail", async () => {
+      let loads = 0;
+      const { api } = fakeApi(active(), {
+        getGame: async () => {
+          if (loads++ === 0) return active();
+          throw new Error("network down");
+        },
+        lockIn: async () => {
+          throw new Error("network down");
+        },
+      });
+      render(<PlayBoard gameId={1} api={api} />);
+      await userEvent.click(await screen.findByText("drop e2e4"));
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Lock in" }),
+      );
+      await waitFor(() => expect(loads).toBe(2));
       await waitFor(() =>
         expect(screen.getByTestId("board")).toHaveAttribute(
           "data-fen",
