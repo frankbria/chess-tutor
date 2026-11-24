@@ -13,10 +13,10 @@ const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const message = (overrides: Partial<CoachMessage> = {}): CoachMessage => ({
   ply: 7,
   role: "coach",
+  kind: "comment",
   text: "That hands your opponent a piece.",
   classification: "blunder",
   phase: "middlegame",
-  classification: "blunder",
   ...overrides,
 });
 
