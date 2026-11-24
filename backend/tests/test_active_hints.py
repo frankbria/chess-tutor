@@ -25,7 +25,7 @@ from chess_tutor.coach.llm import (
     StructuredReply,
     Usage,
 )
-from chess_tutor.coach.prompt import CoachReply
+from chess_tutor.coach.prompt import VERBOSITY_DIRECTIVES, CoachReply
 from chess_tutor.engines.stockfish import StockfishPool
 from chess_tutor.main import create_app
 from chess_tutor.models import CoachMessage, Game
@@ -246,3 +246,16 @@ def test_without_a_language_model_proposals_get_no_hints(settings: Settings) -> 
 
         with Session(app.state.engine) as session:
             assert session.scalars(select(CoachMessage)).all() == []
+
+
+def test_hints_use_the_stored_verbosity(settings: Settings) -> None:
+    model = ScriptedLanguageModel(PRICED)
+    model.queue_structured(CoachReply(text="What can your opponent do after this?", fact_ids=[]))
+    with started(settings, model) as harness:
+        preferences = harness.api.get("/settings").json()["preferences"]
+        harness.api.put("/settings", json={**preferences, "coach_verbosity": "brief"})
+        harness.play_setup()
+        harness.propose(BLUNDER)
+
+    [call] = model.calls
+    assert json.loads(call.messages[0].content)["verbosity"] == VERBOSITY_DIRECTIVES["brief"]

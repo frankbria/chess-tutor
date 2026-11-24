@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from chess_tutor.analysis.move_delta import MoveDelta, move_delta
 from chess_tutor.api.events import CoachCommentEvent, GameEvents
+from chess_tutor.api.settings import load_preferences
 from chess_tutor.coach.grounding import coach_reply_with_grounding
 from chess_tutor.coach.llm import LanguageModel, record_llm_cost
 from chess_tutor.coach.profile import build_coach_profile, stored_phrasings
@@ -122,6 +123,7 @@ class HintCoach:
             profile = build_coach_profile(
                 session, player_id, concepts, stored_phrasings(session, player_id)
             )
+            verbosity = load_preferences(session, self._settings.maia_model).coach_verbosity
         context = CoachContext(
             mode=GameMode.ACTIVE,
             active_pre_lock_in=True,
@@ -135,6 +137,7 @@ class HintCoach:
             hint_level=level,
             profile=profile,
             recent_coach_messages=self._recent_texts(game_id),
+            verbosity=verbosity,
         )
         reply = await coach_reply_with_grounding(self._model, context)
         with Session(self._engine) as session:

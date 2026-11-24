@@ -173,6 +173,19 @@ def test_request_matches_the_checked_in_snapshot() -> None:
     assert assembled_request(fork_context()) == json.loads(SNAPSHOT.read_text())
 
 
+def test_normal_verbosity_adds_nothing_and_the_other_levels_differ() -> None:
+    payloads = {
+        level: assembled_request(fork_context(verbosity=level))
+        for level in ("brief", "normal", "detailed")
+    }
+
+    assert payloads["normal"] == json.loads(SNAPSHOT.read_text())
+    assert payloads["brief"] != payloads["normal"] != payloads["detailed"]
+    assert payloads["brief"] != payloads["detailed"]
+    assert "one sentence" in everything_sent(fork_context(verbosity="brief"))
+    assert "three sentences" in everything_sent(fork_context(verbosity="detailed"))
+
+
 def test_only_the_last_few_recent_messages_are_sent() -> None:
     context = fork_context(recent_coach_messages=[f"message {n}" for n in range(8)])
 

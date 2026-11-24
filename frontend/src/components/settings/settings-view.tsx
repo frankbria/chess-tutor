@@ -142,7 +142,7 @@ export function SettingsView() {
         <h2 id="preferences-heading" className="text-lg font-semibold">
           Preferences
         </h2>
-        <Field label="Coach verbosity (coming soon, not applied yet)">
+        <Field label="Coach verbosity">
           <select
             className={FIELD_CLASS}
             value={draft.coach_verbosity}

@@ -18,6 +18,7 @@ from chess_tutor.analysis.classification import MoveClassification
 from chess_tutor.analysis.move_delta import move_delta
 from chess_tutor.analysis.recording import classify_stored_move
 from chess_tutor.api.events import CoachCommentEvent, GameEvents
+from chess_tutor.api.settings import load_preferences
 from chess_tutor.coach.grounding import coach_reply_with_grounding
 from chess_tutor.coach.llm import LanguageModel, record_llm_cost
 from chess_tutor.coach.profile import build_coach_profile, stored_phrasings
@@ -206,6 +207,7 @@ class PassiveCoach:
         if self._model is None or not self._due(game_id, ply):
             return
         with Session(self._engine) as session:
+            verbosity = load_preferences(session, self._settings.maia_model).coach_verbosity
             profile = build_coach_profile(
                 session, player_id, concepts, stored_phrasings(session, player_id)
             )
@@ -221,6 +223,7 @@ class PassiveCoach:
             best_line=delta.best_line,
             profile=profile,
             recent_coach_messages=self._recent_texts(game_id),
+            verbosity=verbosity,
         )
         reply = await coach_reply_with_grounding(self._model, context)
         with Session(self._engine) as session:
