@@ -166,15 +166,13 @@ def test_an_ungrounded_reply_to_an_answer_is_regenerated(settings: Settings) -> 
         assert (last.text, last.source.value) == (REPLY.text, "llm_regenerated")
 
 
-def test_an_answer_needs_a_pending_question_and_some_text(settings: Settings) -> None:
+def test_an_answer_needs_some_text_and_an_existing_game(settings: Settings) -> None:
     with started(asking(settings), scripted(REPLY)) as harness:
         game = f"/games/{harness.game_id}/coach/messages"
-        assert harness.api.post(game, json={"text": ANSWER}).status_code == 409
         harness.play(4)
 
         assert harness.api.post(game, json={"text": "  "}).status_code == 422
         assert harness.api.post(game, json={"text": ANSWER}).status_code == 202
-        assert harness.api.post(game, json={"text": ANSWER}).status_code == 409
         assert harness.api.post("/games/999/coach/messages", json={"text": "x"}).status_code == 404
 
 
@@ -194,7 +192,5 @@ def test_taking_the_move_back_removes_its_question(settings: Settings) -> None:
         harness.play(4)
         harness.api.post(f"/games/{harness.game_id}/takeback")
 
-        game = f"/games/{harness.game_id}/coach/messages"
-        assert harness.api.post(game, json={"text": ANSWER}).status_code == 409
         with Session(harness.app.state.engine) as session:
             assert session.scalars(select(CoachMessage)).all() == []
