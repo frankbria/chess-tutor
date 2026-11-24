@@ -48,6 +48,8 @@ class CoachCommentEvent(BaseModel):
     # `message_key` replaces it.
     provisional: bool = False
     message_key: str | None = None
+    # The final reply for this key was dropped (takeback, rethink, ...): remove the template line.
+    retracted: bool = False
 
 
 GameEvent = OpponentMoveEvent | GameOverEvent | CoachCommentEvent

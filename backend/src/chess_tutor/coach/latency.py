@@ -12,6 +12,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from chess_tutor.api.events import CoachCommentEvent, GameEvents
 from chess_tutor.coach.grounding import GroundedReply, coach_reply_with_grounding, template_reply
 from chess_tutor.coach.llm import LanguageModel
 from chess_tutor.coach.prompt import CoachContext, CoachReply
@@ -70,15 +71,29 @@ async def reply_with_instant_template(
     model: LanguageModel,
     context: CoachContext,
     started: float,
-    show_template: Callable[[CoachReply], None],
+    events: GameEvents,
+    game_id: int,
+    template_event: Callable[[CoachReply], CoachCommentEvent],
+    settle: Callable[[GroundedReply], bool],
     tracker: LatencyTracker = COACH_LATENCY,
-) -> GroundedReply:
-    """Hand the template to `show_template` at once, then wait for the grounded reply.
+) -> None:
+    """Publish the template at once, then `settle` the grounded reply once it is ready.
 
+    `settle` stores and publishes the final event and says whether it did; when it did not (the
+    move was taken back, the proposal went stale) or anything failed, the template is retracted.
     `started` is a `time.monotonic()` reading from when the coaching task began.
     """
-    show_template(template_reply(context))
+    provisional = template_event(template_reply(context))
+    events.publish(game_id, provisional)
     to_template = time.monotonic() - started
-    reply = await coach_reply_with_grounding(model, context)
-    tracker.record(to_template, time.monotonic() - started)
-    return reply
+    settled = False
+    try:
+        settled = settle(await coach_reply_with_grounding(model, context))
+        if settled:
+            tracker.record(to_template, time.monotonic() - started)
+    finally:
+        if not settled:
+            retraction = provisional.model_copy(
+                update={"text": "", "fact_ids": [], "retracted": True}
+            )
+            events.publish(game_id, retraction)

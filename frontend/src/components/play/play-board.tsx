@@ -148,7 +148,17 @@ export function PlayBoard({
         kind: sent,
         provisional,
         message_key,
+        retracted,
       }) => {
+        if (retracted) {
+          setCoachMessages((known) =>
+            known.filter(
+              (message) =>
+                !(message.provisional && message.message_key === message_key),
+            ),
+          );
+          return;
+        }
         // Active mode's hints and remarks are stored as hints, so show them as hints live too.
         const kind =
           classification === "hint" || classification === "remark"

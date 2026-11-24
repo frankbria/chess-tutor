@@ -585,52 +585,54 @@ class PassiveCoach:
         assert self._model is not None
         message_key = uuid4().hex
 
-        def show_template(template: CoachReply) -> None:
+        def template_event(template: CoachReply) -> CoachCommentEvent:
+            return CoachCommentEvent(
+                ply=stored.ply,
+                text=template.text,
+                classification=classification.value,
+                phase=phase,
+                fact_ids=template.fact_ids,
+                source=CoachMessageSource.TEMPLATE.value,
+                kind=kind,
+                provisional=True,
+                message_key=message_key,
+            )
+
+        def settle(reply: GroundedReply) -> bool:
+            with Session(self._engine) as session:
+                if not self._still_played(session, stored):  # taken back while the LLM replied
+                    return False
+                session.add(
+                    CoachMessage(
+                        game_id=game_id,
+                        ply=stored.ply,
+                        role=CoachRole.COACH,
+                        kind=kind,
+                        text=reply.text,
+                        fact_ids=json.dumps(reply.fact_ids),
+                        source=CoachMessageSource(reply.source.value),
+                        concepts=json.dumps([concept.value for concept in concepts]),
+                    )
+                )
+                session.commit()
+                record_llm_cost(session, game_id, reply.cost)
             self._events.publish(
                 game_id,
                 CoachCommentEvent(
                     ply=stored.ply,
-                    text=template.text,
+                    text=reply.text,
                     classification=classification.value,
                     phase=phase,
-                    fact_ids=template.fact_ids,
-                    source=CoachMessageSource.TEMPLATE.value,
+                    fact_ids=reply.fact_ids,
+                    source=reply.source.value,
                     kind=kind,
-                    provisional=True,
                     message_key=message_key,
                 ),
             )
+            return True
 
-        reply = await reply_with_instant_template(self._model, context, started, show_template)
-        with Session(self._engine) as session:
-            if not self._still_played(session, stored):  # taken back while the LLM replied
-                return
-            session.add(
-                CoachMessage(
-                    game_id=game_id,
-                    ply=stored.ply,
-                    role=CoachRole.COACH,
-                    kind=kind,
-                    text=reply.text,
-                    fact_ids=json.dumps(reply.fact_ids),
-                    source=CoachMessageSource(reply.source.value),
-                    concepts=json.dumps([concept.value for concept in concepts]),
-                )
-            )
-            session.commit()
-            record_llm_cost(session, game_id, reply.cost)
-        self._events.publish(
-            game_id,
-            CoachCommentEvent(
-                ply=stored.ply,
-                text=reply.text,
-                classification=classification.value,
-                phase=phase,
-                fact_ids=reply.fact_ids,
-                source=reply.source.value,
-                kind=kind,
-                message_key=message_key,
-            ),
+        await reply_with_instant_template(
+            self._model, context, started, self._events, game_id, template_event, settle
         )
 
     def _still_played(self, session: Session, scored: Move) -> bool:

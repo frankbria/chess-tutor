@@ -888,6 +888,33 @@ describe("board helpers", () => {
       ).not.toBeInTheDocument();
     });
 
+    it("removes the provisional line when the server retracts its key", async () => {
+      const { api, stream } = fakeApi(active());
+      render(<PlayBoard gameId={1} api={api} />);
+      await screen.findByTestId("board");
+      const comment = {
+        ply: 1,
+        classification: "hint",
+        hint_level: 1,
+        phase: "opening" as const,
+        provisional: true,
+        message_key: "k1",
+      };
+      act(() =>
+        stream()?.onCoachComment({ ...comment, text: "Think about the reply." }),
+      );
+      await waitFor(() =>
+        expect(document.querySelectorAll("[data-provisional]")).toHaveLength(1),
+      );
+      act(() =>
+        stream()?.onCoachComment({ ...comment, text: "", retracted: true }),
+      );
+      await waitFor(() =>
+        expect(document.querySelector("[data-provisional]")).toBeNull(),
+      );
+      expect(document.querySelectorAll("[data-kind]")).toHaveLength(0);
+    });
+
     it("keeps two coach messages that differ only in hint level", async () => {
       const { api, stream } = fakeApi(active());
       render(<PlayBoard gameId={1} api={api} />);

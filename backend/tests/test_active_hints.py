@@ -247,7 +247,11 @@ def test_a_hint_that_is_overtaken_never_lands(settings: Settings, interruption: 
         harness.api.portal.call(model.release.set)
         harness.settle()
 
-        assert harness.stored() == [] and harness.events() == []
+        [template, retraction] = harness.all_events()
+        assert harness.stored() == []
+        assert (template.provisional, template.retracted) == (True, False)
+        assert (retraction.provisional, retraction.retracted, retraction.text) == (True, True, "")
+        assert retraction.message_key and retraction.message_key == template.message_key
         with Session(harness.app.state.engine) as session:
             assert (
                 session.get_one(Game, harness.game_id).llm_cost > 0

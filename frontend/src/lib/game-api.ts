@@ -75,6 +75,8 @@ export interface GameStreamHandlers {
     kind?: CoachMessageKind;
     provisional?: boolean;
     message_key?: string | null;
+    /** The reply for this key was dropped: remove its provisional line. */
+    retracted?: boolean;
   }) => void;
   onSnapshot: (event: { fen: string; status: string }) => void;
   onOpponentMove: (event: {
