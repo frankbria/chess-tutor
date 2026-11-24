@@ -10,6 +10,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from chess_tutor.api.settings import CoachVerbosity
 from chess_tutor.coach.llm import ChatMessage, LanguageModel, ModelTier, StructuredReply
 from chess_tutor.coach.profile import CoachProfile
 from chess_tutor.facts.models import Fact, FactPacket
@@ -60,6 +61,15 @@ Tuesday"), using its `date` and only what its `summary` and `key_moments` say. T
 `focus` list is a menu of things worth noticing, not a checklist.\
 """
 
+# Normal has no entry: it is the system prompt's own length rule, so its request stays unchanged.
+VERBOSITY_DIRECTIVES: dict[CoachVerbosity, str] = {
+    "brief": "Overrides the usual length: reply in one sentence, however much the facts offer.",
+    "detailed": (
+        "Overrides the usual length: you may use up to three sentences, and give the reason "
+        "behind your point."
+    ),
+}
+
 
 class CoachEvent(StrEnum):
     COMMENT_ON_MOVE = "comment_on_move"
@@ -85,6 +95,7 @@ class CoachContext(BaseModel):
     profile: CoachProfile | None = None
     recent_coach_messages: list[str] = Field(default_factory=list)
     player_message: str | None = None
+    verbosity: CoachVerbosity = "normal"
 
 
 class CoachReply(BaseModel):
@@ -155,6 +166,7 @@ def _context_payload(context: CoachContext) -> dict[str, object]:
         ),
         "recent_coach_messages": context.recent_coach_messages[-RECENT_MESSAGES_SHOWN:],
         "player_message": context.player_message,
+        "verbosity": VERBOSITY_DIRECTIVES.get(context.verbosity),
     }
     payload.update({key: value for key, value in optional.items() if value})
     return payload

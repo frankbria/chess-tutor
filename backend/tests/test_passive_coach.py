@@ -162,6 +162,33 @@ def test_a_blunder_gets_a_grounded_comment(settings: Settings) -> None:
     assert '"locked_in":true' in call.messages[0].content
 
 
+@pytest.mark.parametrize(("stored", "expected"), [("brief", "one sentence"), ("detailed", "three")])
+def test_comments_use_the_stored_verbosity(settings: Settings, stored: str, expected: str) -> None:
+    model = scripted(COMMENT)
+    with started(settings, model) as harness:
+        harness.api.put(
+            "/settings",
+            json={
+                "coach_verbosity": stored,
+                "default_mode": "passive",
+                "maia_model": "3m",
+                "monthly_cost_ceiling": 10,
+            },
+        )
+        harness.play(4)
+
+    [call] = model.calls
+    assert expected in call.messages[0].content
+
+
+def test_default_verbosity_adds_no_length_directive(settings: Settings) -> None:
+    model = scripted(COMMENT)
+    with started(settings, model) as harness:
+        harness.play(4)
+
+    assert "verbosity" not in model.calls[0].messages[0].content
+
+
 def test_ordinary_good_moves_make_no_llm_call(settings: Settings) -> None:
     model = scripted()
     with started(settings, model) as harness:
