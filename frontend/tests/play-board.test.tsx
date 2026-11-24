@@ -62,6 +62,8 @@ function game(overrides: Partial<GameState> = {}): GameState {
     time_control: null,
     clock: null,
     ended_on_time: false,
+    opening_line: [],
+    book_exit: null,
     ...overrides,
   };
 }
@@ -116,6 +118,26 @@ describe("PlayBoard", () => {
     expect(screen.getByRole("list", { name: "Moves" })).toHaveTextContent(
       "1.e4e5",
     );
+  });
+
+  it("labels the opening and says who left the book", async () => {
+    const line = [
+      { ply: 1, in_book: true, eco: "B00", opening: "King's Pawn Game", variation: null },
+      { ply: 2, in_book: true, eco: "C20", opening: "King's Pawn Game", variation: null },
+      { ply: 3, in_book: false, eco: "C20", opening: "King's Pawn Game", variation: null },
+    ];
+    const { api } = fakeApi(
+      game({
+        moves: ["e4", "e5", "a3"],
+        opening_line: line,
+        book_exit: { ply: 3, side: "white" },
+      }),
+    );
+    render(<PlayBoard gameId={1} api={api} />);
+    expect(await screen.findByTestId("opening-label")).toHaveTextContent(
+      "C20 · King's Pawn Game",
+    );
+    expect(screen.getByText("Left book at 2. a3 (you)")).toBeInTheDocument();
   });
 
   it("shows the thinking indicator until the reply arrives", async () => {

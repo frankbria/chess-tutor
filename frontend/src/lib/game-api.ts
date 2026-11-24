@@ -12,6 +12,22 @@ export interface ClockState {
   running: PlayerColor | null;
 }
 
+/** The game's opening state after one ply; the name is the deepest one reached so far. */
+export interface OpeningStep {
+  ply: number;
+  /** False from the book exit on, even if a later position transposes back. */
+  in_book: boolean;
+  eco: string | null;
+  opening: string | null;
+  variation: string | null;
+}
+
+/** The first ply that left every book line, and who played it. */
+export interface BookExit {
+  ply: number;
+  side: PlayerColor;
+}
+
 export interface GameState {
   id: number;
   mode: GameMode;
@@ -26,6 +42,8 @@ export interface GameState {
   time_control: string | null;
   clock: ClockState | null;
   ended_on_time: boolean;
+  opening_line: OpeningStep[];
+  book_exit: BookExit | null;
 }
 
 export type GamePhase = "opening" | "middlegame" | "endgame";

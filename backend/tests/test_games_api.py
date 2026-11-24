@@ -360,3 +360,31 @@ def test_takeback_is_a_conflict_in_regular_mode_and_with_nothing_to_undo(api: Te
     assert api.post(f"/games/{regular['id']}/takeback").status_code == 409
     assert api.post(f"/games/{fresh['id']}/takeback").status_code == 409
     assert api.post("/games/999/takeback").status_code == 404
+
+
+def test_game_response_tracks_the_opening_and_where_the_game_left_book(api: TestClient) -> None:
+    game = create(api)
+    api.post(f"/games/{game['id']}/moves", json={"uci": "e2e4"})
+    api.post(f"/games/{game['id']}/moves", json={"uci": "d1h5"})
+    after_queen = api.get(f"/games/{game['id']}").json()
+    assert after_queen["book_exit"] is None
+    assert after_queen["opening_line"][-1] == {
+        "ply": 4,
+        "in_book": True,
+        "eco": "C20",
+        "opening": "King's Pawn Game",
+        "variation": "Wayward Queen Attack",
+    }
+
+    api.post(f"/games/{game['id']}/moves", json={"uci": "f1c4"})  # the opponent replies a6
+    body = api.get(f"/games/{game['id']}").json()
+
+    assert body["moves"] == ["e4", "e5", "Qh5", "Nc6", "Bc4", "a6"]
+    assert body["book_exit"] == {"ply": 6, "side": "black"}
+    assert [step["in_book"] for step in body["opening_line"]] == [True] * 5 + [False]
+
+
+def test_a_new_game_has_an_empty_opening_line(api: TestClient) -> None:
+    game = create(api)
+
+    assert game["opening_line"] == [] and game["book_exit"] is None

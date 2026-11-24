@@ -21,6 +21,7 @@ from chess_tutor.models import (
     Move,
     PlayerColor,
 )
+from chess_tutor.openings.tracking import BookExit, OpeningStep, track_opening
 from chess_tutor.rating.performance import record_performance
 from chess_tutor.settings import ClassificationThresholds
 
@@ -81,6 +82,8 @@ class Review:
     reasoning: list[ReasoningExchange]
     summary: StoredSummary | None
     concepts: list[ConceptHit]
+    opening_line: list[OpeningStep]
+    book_exit: BookExit | None
 
 
 def _loss(move: Move) -> float:
@@ -208,6 +211,7 @@ async def build_review(
             )
         )
     key_moments = list(await asyncio.gather(*(_reveal(move, pool) for move in chosen)))
+    opening = track_opening(chess.Move.from_uci(move.uci) for move in moves)
     return Review(
         accuracy,
         performance,
@@ -216,4 +220,6 @@ async def build_review(
         reasoning,
         summary,
         concepts,
+        opening.line,
+        opening.book_exit,
     )

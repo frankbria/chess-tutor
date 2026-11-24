@@ -35,19 +35,26 @@ def _book_lines(data_directory: Path) -> Iterator[tuple[Opening, list[str]]]:
                     yield Opening(row["eco"], row["name"]), keys
 
 
+class Book(NamedTuple):
+    named_positions: dict[str, Opening]  # position key at the end of a named line -> its opening
+    line_positions: frozenset[str]  # every position along any book line
+
+
 @lru_cache(maxsize=1)
-def opening_index(data_directory: Path = DATA_DIRECTORY) -> dict[str, Opening]:
+def load_book(data_directory: Path) -> Book:
+    """Parse the book once; the index and the line positions come from the same pass."""
     index: dict[str, Opening] = {}
+    line_positions: set[str] = set()
     for opening, keys in _book_lines(data_directory):
         index.setdefault(keys[-1], opening)
+        line_positions.update(keys)
     if not index:
         raise RuntimeError(f"no openings found in {data_directory}: the book data is missing")
-    return index
+    return Book(index, frozenset(line_positions))
 
 
-@lru_cache(maxsize=1)
-def _line_positions(data_directory: Path = DATA_DIRECTORY) -> frozenset[str]:
-    return frozenset(key for _, keys in _book_lines(data_directory) for key in keys)
+def opening_index(data_directory: Path = DATA_DIRECTORY) -> dict[str, Opening]:
+    return load_book(data_directory).named_positions
 
 
 def is_in_book(board: chess.Board) -> bool:
@@ -56,7 +63,7 @@ def is_in_book(board: chess.Board) -> bool:
 
 def is_on_book_line(board: chess.Board) -> bool:
     """True when the position is any step of a book line, not only the end of a named entry."""
-    return position_key(board) in _line_positions()
+    return position_key(board) in load_book(DATA_DIRECTORY).line_positions
 
 
 def lookup_opening(board: chess.Board) -> Opening | None:

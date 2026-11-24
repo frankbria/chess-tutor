@@ -14,6 +14,7 @@ import { ClockDisplay } from "@/components/play/clock-display";
 import { Chessboard } from "@/components/play/chessboard";
 import { GameOverDialog } from "@/components/play/game-over-dialog";
 import { MoveList } from "@/components/play/move-list";
+import { OpeningLabel } from "@/components/play/opening-label";
 import { PromotionDialog } from "@/components/play/promotion-dialog";
 import {
   destinationsFrom,
@@ -518,6 +519,12 @@ export function PlayBoard({
             {message}
           </p>
         )}
+        <OpeningLabel
+          step={game.opening_line.at(-1)}
+          bookExit={game.book_exit}
+          moves={game.moves}
+          playerColor={game.player_color}
+        />
         <MoveList moves={game.moves} />
         {hasCoach && (
           <CoachPanel

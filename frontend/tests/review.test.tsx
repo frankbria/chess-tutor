@@ -36,6 +36,8 @@ const game: GameState = {
   time_control: null,
   clock: null,
   ended_on_time: false,
+  opening_line: [],
+  book_exit: null,
 };
 
 const review: Review = {
@@ -63,6 +65,15 @@ const review: Review = {
   reasoning: [],
   summary: { summary: "You lost a tempo in the opening.", key_moments: [], concepts: [], source: "template" },
   concepts: [],
+  opening_line: [
+    { ply: 1, in_book: true, eco: "B00", opening: "King's Pawn Game", variation: null },
+    { ply: 2, in_book: true, eco: "C20", opening: "King's Pawn Game", variation: null },
+    { ply: 3, in_book: true, eco: "C44", opening: "King's Pawn Game", variation: null },
+    { ply: 4, in_book: true, eco: "C44", opening: "King's Pawn Game", variation: null },
+    { ply: 5, in_book: true, eco: "C50", opening: "Italian Game", variation: null },
+    { ply: 6, in_book: false, eco: "C50", opening: "Italian Game", variation: null },
+  ],
+  book_exit: { ply: 6, side: "black" },
 };
 
 const notes: CoachMessage[] = [
@@ -144,6 +155,26 @@ describe("ReviewView", () => {
     expect(screen.getByText(/from 52% to 14%/)).toBeInTheDocument();
     expect(screen.getByText("That bishop move walked into a fork.")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Blunder");
+  });
+
+  it("shows the opening for the current ply and marks where the game left book", async () => {
+    renderReview();
+    await screen.findByTestId("board");
+    expect(screen.getByTestId("opening-label")).toHaveTextContent("C50 · Italian Game");
+    expect(screen.getByText("Left book at 3... Nd4 (opponent)")).toBeInTheDocument();
+    expect(screen.getByText("Out of book")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(screen.queryByText("Out of book")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Left book/)).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Home" });
+    expect(screen.queryByTestId("opening-label")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Left book/)).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(screen.getByTestId("opening-label")).toHaveTextContent("B00 · King's Pawn Game");
+    expect(screen.queryByText(/Left book/)).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "End" });
+    expect(screen.getByText("Left book at 3... Nd4 (opponent)")).toBeInTheDocument();
   });
 
   it("shows the summary and accuracy", async () => {
