@@ -128,21 +128,31 @@ def stored_phrasings(session: Session, player_id: int) -> dict[Concept, list[str
     return phrasings
 
 
+WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+
 def most_recent_game_per_concept(session: Session, player_id: int) -> dict[Concept, PastGame]:
     """Summaries are scanned newest first, so the first one seen for a concept is its latest."""
-    rows = session.scalars(
-        select(GameSummary)
+    rows = session.execute(
+        select(GameSummary, Game.ended_at)
+        .join(Game, Game.id == GameSummary.game_id)
         .where(GameSummary.player_id == player_id)
         .order_by(GameSummary.created_at.desc())
         .limit(PAST_GAME_LOOKBACK)
     )
     latest: dict[Concept, PastGame] = {}
-    for summary in rows:
+    for summary, ended_at in rows:
+        try:
+            concepts = [Concept(name) for name in json.loads(summary.concepts)]
+            key_moments = json.loads(summary.key_moments)
+        except ValueError:  # corrupt JSON or a concept no longer in the taxonomy
+            continue
+        played = ended_at or summary.created_at
         past_game = PastGame(
-            date=summary.created_at.strftime("%Y-%m-%d, %A"),
+            date=f"{played:%Y-%m-%d}, {WEEKDAYS[played.weekday()]}",
             summary=summary.summary,
-            key_moments=json.loads(summary.key_moments),
+            key_moments=key_moments,
         )
-        for name in json.loads(summary.concepts):
-            latest.setdefault(Concept(name), past_game)
+        for concept in concepts:
+            latest.setdefault(concept, past_game)
     return latest

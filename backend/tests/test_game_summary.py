@@ -1,9 +1,12 @@
+import asyncio
 import json
 import logging
+from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, ValidationError
 from scripted_opponent import ScriptedOpponent
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
@@ -18,7 +21,13 @@ from test_passive_coach import (
     started,
 )
 
-from chess_tutor.coach.llm import LanguageModel, LanguageModelError, ModelTier
+from chess_tutor.coach.llm import (
+    ChatMessage,
+    LanguageModel,
+    LanguageModelError,
+    ModelTier,
+    StructuredReply,
+)
 from chess_tutor.coach.profile import build_coach_profile
 from chess_tutor.coach.summary import SummaryDraft
 from chess_tutor.concepts.taxonomy import Concept
@@ -174,8 +183,93 @@ def test_the_coach_is_shown_the_latest_past_game_with_the_recurring_concept(
     )
 
 
+class YieldingSummaryModel:
+    """Summarises after yielding to the event loop, so concurrent calls interleave."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def structured[ParsedModel: BaseModel](
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        messages: Sequence[ChatMessage],
+        schema: type[ParsedModel],
+    ) -> StructuredReply[ParsedModel]:
+        self.calls += 1
+        await asyncio.sleep(0)
+        if tier is ModelTier.COACHING:
+            raise RuntimeError("boom")
+        assert isinstance(DRAFT, schema)
+        return StructuredReply(DRAFT, PRICED)
+
+    def stream_text(self, **_: object) -> AsyncIterator[str]:
+        raise NotImplementedError
+
+
+def test_an_unfinished_game_is_never_summarised(settings: Settings) -> None:
+    with started(settings, scripted(DRAFT), mode="regular") as harness:
+        assert harness.api.portal is not None
+        harness.api.portal.call(harness.app.state.passive_coach._summarize, harness.game_id)
+
+        assert stored_summaries(harness.app.state.engine) == []
+        end_game(harness)
+        assert len(stored_summaries(harness.app.state.engine)) == 1
+
+
+def test_a_failing_coach_call_on_the_final_move_still_leaves_a_summary(settings: Settings) -> None:
+    model = YieldingSummaryModel()
+    with started(settings, model) as harness:
+        harness.play(4)  # the blunder's comment raises inside coach_move
+        end_game(harness)
+
+        [stored] = stored_summaries(harness.app.state.engine)
+    assert stored.source.value == "llm"
+
+
+def test_concurrent_summaries_store_one_and_record_every_cost(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    model = YieldingSummaryModel()
+    with caplog.at_level(logging.ERROR), started(settings, model, mode="regular") as harness:
+        harness.api.post(f"/games/{harness.game_id}/resign")
+        coach = harness.app.state.passive_coach
+
+        async def twice() -> None:
+            await asyncio.gather(
+                coach._summarize(harness.game_id), coach._summarize(harness.game_id)
+            )
+
+        assert harness.api.portal is not None
+        harness.api.portal.call(coach.wait_until_idle)
+        harness.api.portal.call(twice)  # the auto-scheduled one has finished: this pair races on
+        with Session(harness.app.state.engine) as session:
+            session.query(GameSummary).delete()
+            session.commit()
+        harness.api.portal.call(twice)
+
+        assert len(stored_summaries(harness.app.state.engine)) == 1
+        with Session(harness.app.state.engine) as session:
+            cost = session.get_one(Game, harness.game_id).llm_cost
+    assert cost >= 2 * PRICED.cost and caplog.text == ""
+
+
+def test_a_runaway_summary_reply_is_rejected_by_its_schema() -> None:
+    with pytest.raises(ValidationError):
+        SummaryDraft(summary="x" * 601, key_moments=[])
+    with pytest.raises(ValidationError):
+        SummaryDraft(summary="ok", key_moments=["a"] * 6)
+    with pytest.raises(ValidationError):
+        SummaryDraft(summary="ok", key_moments=["x" * 201])
+
+
 def finished_game_with_summary(
-    session: Session, ended_at: datetime, concepts: list[Concept], text: str
+    session: Session,
+    ended_at: datetime,
+    concepts: list[Concept],
+    text: str,
+    concepts_json: str | None = None,
 ) -> None:
     game = Game(
         player_id=1,
@@ -194,9 +288,8 @@ def finished_game_with_summary(
             game_id=game.id,
             player_id=1,
             summary=text,
-            created_at=ended_at,
             key_moments="[]",
-            concepts=json.dumps([concept.value for concept in concepts]),
+            concepts=concepts_json or json.dumps([concept.value for concept in concepts]),
             source="template",
         )
     )
@@ -217,3 +310,18 @@ def test_a_concepts_entry_carries_its_newest_matching_summary_only(settings: Set
     assert hanging.last_game is not None
     assert (hanging.last_game.summary, hanging.last_game.date) == ("new", "2026-11-17, Tuesday")
     assert back_rank.last_game is None
+
+
+def test_a_corrupt_or_unknown_concept_list_is_skipped(settings: Settings) -> None:
+    app = create_app(settings, ScriptedOpponent(), None)
+    with TestClient(app), Session(app.state.engine) as session:
+        good = datetime(2026, 11, 10, tzinfo=UTC)
+        finished_game_with_summary(session, good, [Concept.HANGING_PIECE], "good")
+        finished_game_with_summary(session, good, [], "bad json", concepts_json="not json")
+        finished_game_with_summary(session, good, [], "unknown", concepts_json='["no_such_thing"]')
+        session.commit()
+
+        profile = build_coach_profile(session, 1, [Concept.HANGING_PIECE], {})
+
+    assert profile.concepts[0].last_game is not None
+    assert profile.concepts[0].last_game.summary == "good"

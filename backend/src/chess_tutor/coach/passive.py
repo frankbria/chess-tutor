@@ -11,6 +11,7 @@ import logging
 
 import chess
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from chess_tutor.analysis.classification import MoveClassification
@@ -158,13 +159,18 @@ class PassiveCoach:
         try:
             with Session(self._engine) as session:
                 game = session.get_one(Game, game_id)
+                if game.status is not GameStatus.FINISHED or game.result is None:
+                    return  # a summary for a running game would block the real one (unique game)
                 if session.scalar(select(GameSummary.id).where(GameSummary.game_id == game_id)):
                     return
                 digest = build_digest(session, game)
             draft, source, usages = await summarize_game(self._model, digest)
             with Session(self._engine) as session:
-                store_summary(session, session.get_one(Game, game_id), digest, draft, source)
                 record_llm_cost(session, game_id, sum(usage.cost for usage in usages))
+                try:
+                    store_summary(session, session.get_one(Game, game_id), digest, draft, source)
+                except IntegrityError:  # a concurrent call stored it first; its cost still counts
+                    session.rollback()
         except Exception:
             logger.exception("summarising game %s failed", game_id)
 

@@ -7,7 +7,7 @@ summary built from the same data is stored instead, so every finished game gets 
 import json
 from dataclasses import dataclass
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -37,8 +37,15 @@ Never invent anything that is not in the context.\
 
 
 class SummaryDraft(BaseModel):
-    summary: str
-    key_moments: list[str]
+    summary: str = Field(max_length=600)
+    key_moments: list[str] = Field(max_length=5)
+
+    @field_validator("key_moments")
+    @classmethod
+    def _short_moments(cls, moments: list[str]) -> list[str]:
+        if any(len(moment) > 200 for moment in moments):
+            raise ValueError("a key moment is longer than 200 characters")
+        return moments
 
 
 @dataclass(frozen=True)
@@ -128,8 +135,9 @@ async def summarize_game(
             messages=_request(digest),
             schema=SummaryDraft,
         )
-    except LanguageModelError as error:
-        usages = [error.usage] if error.usage else []
+    except (LanguageModelError, ValidationError) as error:
+        usage = error.usage if isinstance(error, LanguageModelError) else None
+        usages = [usage] if usage else []
         return template_summary(digest), CoachMessageSource.TEMPLATE, usages
     return reply.parsed, CoachMessageSource.LLM, [reply.usage]
 
