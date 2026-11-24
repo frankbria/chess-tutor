@@ -49,6 +49,8 @@ const llmEnvironment = useRealLlm
       CHESS_TUTOR_LLM_API_KEY: "e2e-unused-key",
       ANTHROPIC_BASE_URL: `http://${host}:${unreachablePort}`,
     };
+// "none" would switch the coach off entirely (no questions), so never inherit it from the shell.
+llmEnvironment.CHESS_TUTOR_LLM_PROVIDER = "anthropic";
 
 const backend = spawn(
   "uv",

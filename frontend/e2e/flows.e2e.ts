@@ -4,6 +4,7 @@ import {
   anyMove,
   blunderMove,
   dragPiece,
+  gameIdOf,
   playMove,
   snapshot,
   startFromOptions,
@@ -22,7 +23,7 @@ const question = (page: Page) => page.locator('li[data-kind="question"]');
 
 /** Blunders until the coach asks its question (a mistake or blunder is a key moment). */
 async function blunderUntilQuestion(page: Page, alreadyAsked: number) {
-  for (let attempt = 0; attempt < 12; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     if ((await question(page).count()) > alreadyAsked) return;
     await playAndAwaitReply(page, blunderMove);
     await page.waitForTimeout(1000); // the coach scores the move in the background
@@ -46,6 +47,22 @@ test("Regular: the opponent answers each move", async ({ page }) => {
   await expect(page.getByRole("list", { name: "Moves" }).getByRole("listitem")).toHaveCount(2);
 });
 
+/** Where the coach's reply to the player's answer came from: the model, or a template. */
+async function replySource(page: Page) {
+  let source = "";
+  await expect
+    .poll(
+      async () => {
+        const messages = await (await page.request.get(`${process.env.E2E_API_URL}/games/${gameIdOf(page)}/coach/messages`)).json();
+        source = messages.find((message: { role: string; kind: string }) => message.role === "coach" && message.kind === "answer")?.source ?? "";
+        return source;
+      },
+      { timeout: 90_000 },
+    )
+    .not.toBe("");
+  return source;
+}
+
 test("Passive: a blunder prompts the coach question, which can be answered and skipped", async ({ page }) => {
   await startFromOptions(page, "passive");
 
@@ -54,6 +71,10 @@ test("Passive: a blunder prompts the coach question, which can be answered and s
   await page.getByLabel("Message the coach").fill("I wanted to develop quickly.");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.locator('li[data-kind="answer"]').first()).toContainText("develop quickly");
+  // Template mode must never reach a model; the opt-in run must prove the reply is the model's.
+  const source = await replySource(page);
+  if (process.env.E2E_LLM) expect(["llm", "llm_regenerated"]).toContain(source);
+  else expect(source).toBe("template");
 
   await blunderUntilQuestion(page, 1);
   await page.getByRole("button", { name: "Skip" }).click();
@@ -86,8 +107,9 @@ test("Active: propose, Rethink restores the position, Lock in commits", async ({
 });
 
 test("Finish a game by resigning, then review it", async ({ page }) => {
-  await startFromOptions(page, "regular");
-  for (let move = 0; move < 5; move++) await playAndAwaitReply(page, blunderMove);
+  // Passive mode scores each move, so the coach's question proves a key moment exists to click.
+  await startFromOptions(page, "passive");
+  await blunderUntilQuestion(page, 0);
 
   await page.getByRole("button", { name: "Resign" }).click();
   await page.getByRole("button", { name: "Confirm resign" }).click();
