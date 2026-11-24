@@ -41,6 +41,7 @@ class CoachCommentEvent(BaseModel):
     phase: GamePhase
     fact_ids: list[str]
     source: str
+    hint_level: int | None = None  # Active mode's ladder rung (1 to 3); null for other comments
 
 
 GameEvent = OpponentMoveEvent | GameOverEvent | CoachCommentEvent

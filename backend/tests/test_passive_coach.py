@@ -203,10 +203,15 @@ def test_other_modes_get_no_coaching(settings: Settings, mode: str) -> None:
                 body = {"uci": uci, "propose": True}
                 assert harness.api.post(f"/games/{harness.game_id}/moves", json=body).is_success
                 assert harness.api.post(f"/games/{harness.game_id}/moves/lock").is_success
+            assert harness.api.portal is not None
+            harness.api.portal.call(harness.app.state.hint_coach.wait_until_idle)
         else:
             harness.play(4)
 
-        assert model.calls == [] and harness.comments() == []
+        # Active mode's own hints (before lock-in) are not passive comments.
+        expected_calls = 1 if mode == "active" else 0
+        assert len(model.calls) == expected_calls
+        assert {message.kind.value for message in harness.comments()} <= {"hint"}
         with Session(harness.app.state.engine) as session:
             assert session.scalars(select(Move.classification).where(Move.ply == 7)).one() is None
 
