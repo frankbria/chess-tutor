@@ -44,6 +44,10 @@ const withoutRepeats = (known: CoachMessage[], incoming: CoachMessage[]) =>
     (message) => !known.some((existing) => sameMessage(existing, message)),
   );
 
+/** A provisional line whose final reply was dropped would otherwise stay on screen. */
+const withoutDrafts = (messages: CoachMessage[]) =>
+  messages.filter((message) => !message.provisional);
+
 const errorMessage = (error: unknown) =>
   error instanceof ApiError
     ? error.message
@@ -123,10 +127,7 @@ export function PlayBoard({
           setCoachMessages((known) => [
             ...history,
             // A provisional line without its final is not stored, so the history cannot confirm it.
-            ...withoutRepeats(
-              history,
-              known.filter((message) => !message.provisional),
-            ),
+            ...withoutRepeats(history, withoutDrafts(known)),
           ]),
         (error: unknown) => setMessage(errorMessage(error)),
       ),
@@ -226,7 +227,8 @@ export function PlayBoard({
     try {
       await api.rethink(gameId);
       setProposal(null);
-      setHintFloor(coachMessages.length);
+      setCoachMessages(withoutDrafts);
+      setHintFloor(withoutDrafts(coachMessages).length);
       setSyncToken((token) => token + 1); // snap the pieces back to the pre-move position
     } catch (error) {
       setMessage(errorMessage(error));
@@ -242,6 +244,7 @@ export function PlayBoard({
     try {
       accept(await api.lockIn(gameId));
       setProposal(null);
+      setCoachMessages(withoutDrafts);
     } catch (error) {
       setMessage(errorMessage(error));
       await resync();
