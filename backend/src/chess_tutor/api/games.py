@@ -48,10 +48,12 @@ from chess_tutor.games.service import (
     IllegalMoveError,
     InvalidGameSettingsError,
     NoProposalError,
+    NothingToTakeBackError,
     NotPlayersTurnError,
     OpponentUnavailableError,
     ProposalPendingError,
     ProposalRequiredError,
+    TakebackNotAllowedError,
     WrongModeError,
 )
 from chess_tutor.models import Game, GameMode, GameResult, GameStatus, PlayerColor, TimeControl
@@ -65,6 +67,8 @@ ERROR_STATUS: tuple[tuple[type[GameError], int], ...] = (
     (IllegalMoveError, 422),
     (InvalidGameSettingsError, 422),
     (NotPlayersTurnError, 409),
+    (TakebackNotAllowedError, 409),
+    (NothingToTakeBackError, 409),
     (WrongModeError, 409),
     (ProposalRequiredError, 409),
     (NoProposalError, 409),
@@ -327,6 +331,11 @@ async def resign(game_id: int, service: Service, events: Events, coach: Coach) -
     await coach.wait_for_game(game_id)
     events.publish(game_id, game_over_event(service.get_board(game_id), game))
     return describe(service, game)
+
+
+@router.post("/{game_id}/takeback")
+async def takeback(game_id: int, service: Service) -> GameResponse:
+    return describe(service, await service.takeback(game_id))
 
 
 @router.get("/{game_id}/pgn", response_class=PlainTextResponse)
