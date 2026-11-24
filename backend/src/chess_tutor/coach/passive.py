@@ -24,6 +24,7 @@ from chess_tutor.coach.grounding import THOUGHT_QUESTION, coach_reply_with_groun
 from chess_tutor.coach.llm import LanguageModel, record_llm_cost
 from chess_tutor.coach.profile import build_coach_profile, stored_phrasings
 from chess_tutor.coach.prompt import RECENT_MESSAGES_SHOWN, CoachContext, CoachEvent
+from chess_tutor.coach.reasoning import tag_reasoning
 from chess_tutor.coach.summary import build_digest, store_summary, summarize_game
 from chess_tutor.coach.thought import (
     KEY_MOMENTS,
@@ -91,7 +92,8 @@ class PassiveCoach:
         # Counted at schedule and released in `_run`'s finally, so whichever task takes it to zero
         # is certain to be the last (task registry removal happens later, in a done callback).
         self._pending: dict[int, int] = {}
-        # Apart from `_tasks` so a request waiting for the final comment never waits for these.
+        # Apart from `_tasks` so a request waiting for the final comment never waits for these;
+        # holds summaries and reasoning tagging, and is cancelled on close.
         self._summary_tasks: set[asyncio.Task[None]] = set()
 
     def player_moved(self, game: Game, ply: int) -> None:
@@ -112,6 +114,7 @@ class PassiveCoach:
         """Store the answer to the open question now; the coach replies in the background."""
         ply = self._close_question(game_id, CoachMessageKind.ANSWER, text)
         self._spawn(game_id, lambda: self.reply_to_answer(game_id, ply, text), "answering")
+        self._schedule_tagging(game_id, ply, text)
 
     def skip_question(self, game_id: int) -> None:
         """A skipped question still owes the player the normal comment on that move."""
@@ -154,6 +157,18 @@ class PassiveCoach:
         """A game that is still being coached is summarised by its last coach task instead."""
         if not self.is_coaching(game_id):
             self._schedule_summary(game_id)
+
+    def _schedule_tagging(self, game_id: int, ply: int, text: str) -> None:
+        """Outside the per-game lock and pending count, so a slow call delays no comment."""
+        task = asyncio.create_task(self._tag_reasoning(game_id, ply, text))
+        self._summary_tasks.add(task)
+        task.add_done_callback(self._summary_tasks.discard)
+
+    async def _tag_reasoning(self, game_id: int, ply: int, text: str) -> None:
+        try:
+            await tag_reasoning(self._engine, self._model, game_id, ply, text)
+        except Exception:
+            logger.exception("tagging the reasoning of game %s ply %s failed", game_id, ply)
 
     def _schedule_summary(self, game_id: int) -> None:
         task = asyncio.create_task(self._summarize(game_id))
