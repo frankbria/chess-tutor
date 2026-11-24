@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from chess_tutor.api.events import GameEvents
 from chess_tutor.api.games import register_game_errors
 from chess_tutor.api.games import router as games_router
+from chess_tutor.api.player import router as player_router
 from chess_tutor.api.review import router as review_router
 from chess_tutor.api.settings import router as settings_router
 from chess_tutor.api.settings import stored_maia_model
@@ -60,6 +61,7 @@ class ConceptStateResponse(BaseModel):
     count: int
     recency_score: float
     practice_themes: list[str]
+    updated_at: datetime
 
 
 CONCEPT_STATE_ORDER = (
@@ -161,6 +163,7 @@ def create_app(
         allow_headers=["Content-Type"],
     )
     app.include_router(games_router)
+    app.include_router(player_router)
     app.include_router(review_router)
     app.include_router(settings_router)
     register_game_errors(app)
@@ -219,6 +222,7 @@ def create_app(
                 count=row.count,
                 recency_score=row.recency_score,
                 practice_themes=list(CONCEPTS[Concept(row.concept)].practice_themes),
+                updated_at=row.updated_at,
             )
             for row in rows
             if row.concept in known

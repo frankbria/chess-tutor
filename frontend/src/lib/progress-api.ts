@@ -31,6 +31,8 @@ export interface ConceptSummary {
   count: number;
   recency_score: number;
   practice_themes: string[];
+  /** When the state last changed. */
+  updated_at: string;
 }
 
 /** What the progress screen needs from the backend; tests supply their own implementation. */
