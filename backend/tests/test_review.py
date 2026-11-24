@@ -219,3 +219,31 @@ def test_key_moments_are_the_biggest_swings_and_the_highlights_in_play_order() -
 @pytest.mark.parametrize("classification", ["best", "good"])
 def test_clean_play_has_no_key_moments(classification: str) -> None:
     assert pick_key_moments([fake_move(1, classification, 50, 50)]) == []
+
+
+def stored_message(role: CoachRole, kind: CoachMessageKind, text: str) -> CoachMessage:
+    return CoachMessage(
+        game_id=1, ply=7, role=role, kind=kind, text=text, fact_ids="[]",
+        source=CoachMessageSource.TEMPLATE, concepts="[]",
+    )  # fmt: skip
+
+
+def test_a_review_reply_never_pairs_with_an_earlier_unanswered_answer() -> None:
+    from chess_tutor.review.report import _reasoning
+
+    unanswered = [
+        stored_message(CoachRole.PLAYER, CoachMessageKind.ANSWER, "my idea"),
+        stored_message(CoachRole.PLAYER, CoachMessageKind.ASKED, "what was best?"),
+        stored_message(CoachRole.COACH, CoachMessageKind.ANSWER, "d4 was best."),
+    ]
+    answered = [
+        stored_message(CoachRole.PLAYER, CoachMessageKind.ANSWER, "my idea"),
+        stored_message(CoachRole.COACH, CoachMessageKind.ANSWER, "I see the idea."),
+        stored_message(CoachRole.PLAYER, CoachMessageKind.ASKED, "what was best?"),
+        stored_message(CoachRole.COACH, CoachMessageKind.ANSWER, "d4 was best."),
+    ]
+
+    assert [(e.answer, e.coach_reply) for e in _reasoning(unanswered)] == [("my idea", None)]
+    assert [(e.answer, e.coach_reply) for e in _reasoning(answered)] == [
+        ("my idea", "I see the idea.")
+    ]

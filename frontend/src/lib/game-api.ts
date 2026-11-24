@@ -35,7 +35,8 @@ export type CoachMessageKind =
   | "question"
   | "hint"
   | "answer"
-  | "skipped";
+  | "skipped"
+  | "asked";
 
 export interface CoachMessage {
   /** The 1-based ply of the move this message refers to. */
@@ -88,7 +89,7 @@ export interface GameApi {
   playMove(id: number, uci: string): Promise<GameState>;
   resign(id: number): Promise<GameState>;
   getCoachMessages(id: number): Promise<CoachMessage[]>;
-  /** Answers the coach's open question; its reply arrives on the stream. */
+  /** Answers the coach's open question, or asks it one when none is open; the reply arrives on the stream. */
   answerQuestion(id: number, text: string): Promise<void>;
   /** Closes the coach's open question without a follow-up. */
   skipQuestion(id: number): Promise<void>;
