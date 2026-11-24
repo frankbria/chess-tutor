@@ -132,6 +132,7 @@ class Game(Base):
     clock_started_ms: Mapped[int | None] = mapped_column(default=None)  # epoch ms, side to move
     ended_on_time: Mapped[bool] = mapped_column(default=False)
     llm_cost: Mapped[float] = mapped_column(default=0.0)  # US dollars spent on the coach
+    takeback_count: Mapped[int] = mapped_column(default=0)
 
 
 class Move(Base):
