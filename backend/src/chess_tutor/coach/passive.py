@@ -11,6 +11,7 @@ import logging
 
 import chess
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from chess_tutor.analysis.classification import MoveClassification
@@ -21,6 +22,7 @@ from chess_tutor.coach.grounding import coach_reply_with_grounding
 from chess_tutor.coach.llm import LanguageModel, record_llm_cost
 from chess_tutor.coach.profile import build_coach_profile, stored_phrasings
 from chess_tutor.coach.prompt import RECENT_MESSAGES_SHOWN, CoachContext, CoachEvent
+from chess_tutor.coach.summary import build_digest, store_summary, summarize_game
 from chess_tutor.concepts.state import refresh_concept_states
 from chess_tutor.concepts.tagger import record_concepts, tag_mistake
 from chess_tutor.engines.stockfish import StockfishPool
@@ -33,6 +35,7 @@ from chess_tutor.models import (
     Game,
     GameMode,
     GameStatus,
+    GameSummary,
     PlayerColor,
 )
 from chess_tutor.openings.phase import detect_phase
@@ -80,6 +83,8 @@ class PassiveCoach:
         # Counted at schedule and released in `_run`'s finally, so whichever task takes it to zero
         # is certain to be the last (task registry removal happens later, in a done callback).
         self._pending: dict[int, int] = {}
+        # Apart from `_tasks` so a request waiting for the final comment never waits for these.
+        self._summary_tasks: set[asyncio.Task[None]] = set()
 
     def player_moved(self, game: Game, ply: int) -> None:
         if game.mode is GameMode.PASSIVE:
@@ -94,8 +99,19 @@ class PassiveCoach:
         self._pending[game_id] = self._pending.get(game_id, 0) + 1
         task.add_done_callback(lambda done: self._tasks.pop(done, None))
 
+    def game_finished(self, game_id: int) -> None:
+        """A game that is still being coached is summarised by its last coach task instead."""
+        if not self.is_coaching(game_id):
+            self._schedule_summary(game_id)
+
+    def _schedule_summary(self, game_id: int) -> None:
+        task = asyncio.create_task(self._summarize(game_id))
+        self._summary_tasks.add(task)
+        task.add_done_callback(self._summary_tasks.discard)
+
     async def wait_until_idle(self) -> None:
         await asyncio.gather(*self._tasks)
+        await asyncio.gather(*self._summary_tasks)
 
     async def wait_for_game(self, game_id: int) -> None:
         tasks = [task for task, game in self._tasks.items() if game == game_id]
@@ -103,9 +119,10 @@ class PassiveCoach:
             await asyncio.wait(tasks, timeout=FINAL_COMMENT_WAIT_SECONDS)
 
     async def close(self) -> None:
-        for task in self._tasks:
+        tasks = [*self._tasks, *self._summary_tasks]
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _run(self, game_id: int, ply: int) -> None:
         try:
@@ -135,6 +152,27 @@ class PassiveCoach:
                     self._settings.thresholds.concept_state,
                 )
                 session.commit()
+                self._schedule_summary(game_id)
+
+    async def _summarize(self, game_id: int) -> None:
+        """Store the game's summary once; a failure here is logged and never touches the game."""
+        try:
+            with Session(self._engine) as session:
+                game = session.get_one(Game, game_id)
+                if game.status is not GameStatus.FINISHED or game.result is None:
+                    return  # a summary for a running game would block the real one (unique game)
+                if session.scalar(select(GameSummary.id).where(GameSummary.game_id == game_id)):
+                    return
+                digest = build_digest(session, game)
+            draft, source, usages = await summarize_game(self._model, digest)
+            with Session(self._engine) as session:
+                record_llm_cost(session, game_id, sum(usage.cost for usage in usages))
+                try:
+                    store_summary(session, session.get_one(Game, game_id), digest, draft, source)
+                except IntegrityError:  # a concurrent call stored it first; its cost still counts
+                    session.rollback()
+        except Exception:
+            logger.exception("summarising game %s failed", game_id)
 
     async def coach_move(self, game_id: int, ply: int) -> None:
         """Classify the player's move at `ply`, tag its concepts, and comment if it is notable."""

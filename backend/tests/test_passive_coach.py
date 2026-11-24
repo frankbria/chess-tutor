@@ -129,7 +129,7 @@ def started(settings: Settings, model: LanguageModel, mode: str = "passive") -> 
         yield Harness(app, api, api.post("/games", json=body).json()["id"])
 
 
-def scripted(*replies: CoachReply) -> ScriptedLanguageModel:
+def scripted(*replies: BaseModel) -> ScriptedLanguageModel:
     model = ScriptedLanguageModel(PRICED)
     for reply in replies:
         model.queue_structured(reply)

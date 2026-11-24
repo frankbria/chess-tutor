@@ -54,8 +54,10 @@ not suggest or hint at a specific one. Guide with questions and what the facts s
 
 When `profile` is present, it lists the concepts behind this move. For each, follow its `style` \
 directive, and never reuse the wording of its `recent_phrasings`: say it differently. Vary your \
-wording from `recent_coach_messages` too. The phase's `focus` list is a menu \
-of things worth noticing, not a checklist.\
+wording from `recent_coach_messages` too. When a concept has `last_game`, the student met the \
+same pattern in that earlier game: you may mention it in a few words ("you ran into this on \
+Tuesday"), using its `date` and only what its `summary` and `key_moments` say. The phase's \
+`focus` list is a menu of things worth noticing, not a checklist.\
 """
 
 
