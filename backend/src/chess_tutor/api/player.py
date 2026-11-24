@@ -14,12 +14,14 @@ from chess_tutor.models import (
     GameSummary,
     PlayerColor,
     PlayerSetting,
+    TimeControl,
 )
 
 DEFAULT_PLAYER_ID = 1  # shortcut: single-user app, no auth yet; replace with the signed-in player.
 LAST_MODE_KEY = "last_mode"
 LAST_COLOR_KEY = "last_color"
 LAST_OPPONENT_ELO_KEY = "last_opponent_elo"
+LAST_TIME_CONTROL_KEY = "last_time_control"  # empty string: untimed
 
 router = APIRouter(prefix="/player", tags=["player"])
 
@@ -28,6 +30,7 @@ class LastChoice(BaseModel):
     mode: GameMode | None
     color: ColorChoice | None
     opponent_elo: int | None
+    time_control: TimeControl | None
 
 
 class LastGame(BaseModel):
@@ -41,12 +44,17 @@ class LastGame(BaseModel):
 
 
 def remember_choice(
-    session: Session, mode: GameMode, color: ColorChoice, opponent_elo: int
+    session: Session,
+    mode: GameMode,
+    color: ColorChoice,
+    opponent_elo: int,
+    time_control: TimeControl | None,
 ) -> None:
     for key, value in (
         (LAST_MODE_KEY, mode.value),
         (LAST_COLOR_KEY, color.value),
         (LAST_OPPONENT_ELO_KEY, str(opponent_elo)),
+        (LAST_TIME_CONTROL_KEY, time_control.value if time_control else ""),
     ):
         session.merge(PlayerSetting(player_id=DEFAULT_PLAYER_ID, key=key, value=value))
     session.commit()
@@ -64,10 +72,12 @@ def get_last_choice(request: Request) -> LastChoice:
     mode = stored.get(LAST_MODE_KEY)
     color = stored.get(LAST_COLOR_KEY)
     elo = stored.get(LAST_OPPONENT_ELO_KEY)
+    time_control = stored.get(LAST_TIME_CONTROL_KEY)
     return LastChoice(
         mode=GameMode(mode) if mode in set(GameMode) else None,
         color=ColorChoice(color) if color in set(ColorChoice) else None,
         opponent_elo=int(elo) if elo is not None and elo.isdigit() else None,
+        time_control=TimeControl(time_control) if time_control in set(TimeControl) else None,
     )
 
 

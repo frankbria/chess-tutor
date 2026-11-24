@@ -17,7 +17,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 beforeEach(() => push.mockClear());
 
-const NO_CHOICE: LastChoice = { mode: null, color: null, opponent_elo: null };
+const NO_CHOICE: LastChoice = { mode: null, color: null, opponent_elo: null, time_control: null };
 
 function lobbyApi(overrides: Partial<LobbyApi> = {}) {
   const created: NewGame[] = [];
@@ -62,7 +62,7 @@ function renderPlay(api: LobbyApi, settings: SettingsApi) {
 
 describe("PlayButton", () => {
   it("one tap starts a game with the last choice and opens it", async () => {
-    const { api, created } = lobbyApi({ getLastChoice: async () => ({ mode: "active", color: "black", opponent_elo: 1450 }) });
+    const { api, created } = lobbyApi({ getLastChoice: async () => ({ mode: "active", color: "black", opponent_elo: 1450, time_control: null }) });
     renderPlay(api, settingsApi("passive"));
     await userEvent.setup().click(screen.getByRole("button", { name: "Play" }));
 
@@ -230,5 +230,29 @@ describe("ConceptHighlights", () => {
 
     await screen.findByRole("region", { name: "Today's focus" });
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
+  });
+});
+
+describe("PlayButton time control", () => {
+  it("replays the last time control in Regular mode", async () => {
+    const { api, created } = lobbyApi({
+      getLastChoice: async () => ({ mode: "regular", color: "white", opponent_elo: 1200, time_control: "10+5" }),
+    });
+    renderPlay(api, settingsApi("regular"));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Play" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(created).toEqual([{ mode: "regular", color: "white", opponent_elo: 1200, time_control: "10+5" }]);
+  });
+
+  it("keeps tutor modes untimed", async () => {
+    const { api, created } = lobbyApi({
+      getLastChoice: async () => ({ mode: "passive", color: "white", opponent_elo: 1200, time_control: "10+5" }),
+    });
+    renderPlay(api, settingsApi("regular"));
+    await userEvent.setup().click(screen.getByRole("button", { name: "Play" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalled());
+    expect(created[0]).not.toHaveProperty("time_control");
   });
 });

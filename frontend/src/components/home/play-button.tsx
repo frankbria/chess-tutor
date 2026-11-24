@@ -26,11 +26,10 @@ export function PlayButton() {
         api.getLastChoice().catch(() => null),
         settingsApi.getSettings().catch(() => null),
       ]);
-      const newGame: NewGame = {
-        mode: last?.mode ?? settings?.preferences.default_mode ?? "regular",
-        color: last?.color ?? "random",
-      };
+      const mode = last?.mode ?? settings?.preferences.default_mode ?? "regular";
+      const newGame: NewGame = { mode, color: last?.color ?? "random" };
       if (last?.opponent_elo != null) newGame.opponent_elo = last.opponent_elo;
+      if (mode === "regular" && last?.time_control) newGame.time_control = last.time_control;
       const game = await api.createGame(newGame);
       router.push(`/play/${game.id}`);
     } catch (caught) {

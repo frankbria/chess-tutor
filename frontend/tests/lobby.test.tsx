@@ -42,7 +42,7 @@ function fakeApi(overrides: Partial<LobbyApi> = {}) {
     },
     listActiveGames: async () => [],
     getPlayer: async () => ({ rating: 1337 }),
-    getLastChoice: async () => ({ mode: null, color: null, opponent_elo: null }),
+    getLastChoice: async () => ({ mode: null, color: null, opponent_elo: null, time_control: null }),
     getLastGame: async () => null,
     ...overrides,
   };

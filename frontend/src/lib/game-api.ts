@@ -70,6 +70,8 @@ export interface NewGame {
   color: ColorChoice;
   /** Omitted: the server picks one from the player's rating (plus a stretch in tutor modes). */
   opponent_elo?: number;
+  /** Regular mode only; omitted for an untimed game. */
+  time_control?: string;
 }
 
 /** The player's previous new-game choice; each field is null until one has been made. */
@@ -77,6 +79,7 @@ export interface LastChoice {
   mode: GameMode | null;
   color: ColorChoice | null;
   opponent_elo: number | null;
+  time_control: string | null;
 }
 
 export interface LastGame {

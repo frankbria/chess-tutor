@@ -33,6 +33,7 @@ Events are published after the service call that caused them, so subscribe befor
 """
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Awaitable
 from datetime import datetime
 from typing import Annotated
@@ -43,6 +44,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, Field
 from sqlalchemy import Engine, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
@@ -80,6 +82,8 @@ from chess_tutor.models import (
     TimeControl,
 )
 from chess_tutor.openings.phase import GamePhase, detect_phase
+
+logger = logging.getLogger(__name__)
 
 CLOCK_POLL_SECONDS = 1.0
 DEFAULT_PLAYER_ID = 1  # shortcut: single-user app, no auth yet; replace with the signed-in player.
@@ -285,8 +289,12 @@ async def create_game(body: CreateGameRequest, service: Service, request: Reques
     game = await service.create_game(
         DEFAULT_PLAYER_ID, body.opponent_elo, body.color, body.mode, body.time_control
     )
-    with Session(request.app.state.engine) as session:
-        remember_choice(session, body.mode, body.color, game.opponent_elo)
+    try:
+        with Session(request.app.state.engine) as session:
+            remember_choice(session, body.mode, body.color, game.opponent_elo, body.time_control)
+    except SQLAlchemyError:
+        # The game exists; failing the request would make a retry create a duplicate.
+        logger.exception("Could not remember the new-game choice for game %s", game.id)
     return describe(service, game)
 
 

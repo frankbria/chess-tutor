@@ -30,6 +30,7 @@ export function ConceptHighlights() {
 
   if (concepts === null) return null;
   const focus = concepts.find((concept) => concept.state === "focus");
+  // shortcut: updated_at also moves when only the count changes, so an old win can resurface; use a state-transition timestamp once one exists.
   const improvements = concepts
     .filter((concept) => concept.state === "improving" || concept.state === "mastered")
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))

@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 from scripted_opponent import ScriptedOpponent
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from chess_tutor.main import create_app
@@ -45,6 +46,7 @@ def test_no_choice_is_remembered_before_the_first_game(client: TestClient) -> No
         "mode": None,
         "color": None,
         "opponent_elo": None,
+        "time_control": None,
     }
 
 
@@ -60,6 +62,7 @@ def test_creating_a_game_remembers_its_mode_colour_choice_and_elo(client: TestCl
         "mode": "active",
         "color": "random",
         "opponent_elo": 1450,
+        "time_control": None,
     }
 
 
@@ -153,3 +156,24 @@ def test_concepts_report_when_their_state_last_changed(settings: Settings) -> No
         body = client.get("/player/concepts").json()
 
     assert body[0]["updated_at"].startswith("2026-11-20")
+
+
+def test_the_time_control_of_the_last_game_is_remembered(client: TestClient) -> None:
+    client.post("/games", json={"mode": "regular", "color": "white", "time_control": "10+5"})
+    assert client.get("/player/last-choice").json()["time_control"] == "10+5"
+
+    client.post("/games", json={"mode": "regular", "color": "white"})
+    assert client.get("/player/last-choice").json()["time_control"] is None
+
+
+def test_a_failure_to_remember_the_choice_still_returns_the_created_game(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing(*_: object) -> None:
+        raise OperationalError("insert", {}, Exception("database is locked"))
+
+    monkeypatch.setattr("chess_tutor.api.games.remember_choice", failing)
+    with TestClient(create_app(settings, ScriptedOpponent("e4"))) as client:
+        response = client.post("/games", json={"mode": "regular", "color": "white"})
+
+    assert response.status_code == 201

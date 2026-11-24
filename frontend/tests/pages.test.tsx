@@ -25,7 +25,7 @@ describe("route placeholders", () => {
   it("home offers a Play action", () => {
     render(
       <LobbyApiProvider
-        api={{ createGame: async () => Promise.reject(new Error("unused")), listActiveGames: async () => [], getPlayer: async () => ({ rating: 1200 }), getLastChoice: async () => ({ mode: null, color: null, opponent_elo: null }), getLastGame: async () => null }}
+        api={{ createGame: async () => Promise.reject(new Error("unused")), listActiveGames: async () => [], getPlayer: async () => ({ rating: 1200 }), getLastChoice: async () => ({ mode: null, color: null, opponent_elo: null, time_control: null }), getLastGame: async () => null }}
       >
         <HomePage />
       </LobbyApiProvider>,
