@@ -633,8 +633,23 @@ def test_replies_that_address_the_correction_are_rejected(text: str) -> None:
     assert GroundingErrorKind.META_COMMENTARY in kinds(reply(text, FORK), context_for())
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Level 2 pointer: look at the rook on a8.",
+        "Hint level 3: keep an eye on forks.",
+        "This is a level 1 nudge: what can your opponent do next?",
+    ],
+)
+def test_replies_that_name_the_hint_ladder_are_rejected(text: str) -> None:
+    assert GroundingErrorKind.META_COMMENTARY in kinds(reply(text, FORK), context_for())
+
+
 def test_ordinary_coaching_is_not_meta_commentary() -> None:
-    text = "You're right, that is a fork. Keep looking for pieces that can be hit at once."
+    text = (
+        "You're right, that is a fork. Keep looking for pieces that can be hit at once, "
+        "and level up your board vision."
+    )
 
     assert validate_reply(reply(text), context_for()) == []
 

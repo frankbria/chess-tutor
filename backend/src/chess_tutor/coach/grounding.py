@@ -19,6 +19,7 @@ Rules `validate_reply` enforces on `reply.text`:
   read as a move and needs a verified line, not just a cited square; "with <square>" counts unless a
   state word follows the square or square list, so "with a8 and e8 both attacked" stays descriptive;
 - Active mode before lock-in: the best move's SAN may not appear at all;
+- the reply may not name the hint ladder ("Level 2 pointer:"), which is internal to the prompt;
 - the reply may not talk about a correction ("Good catch", "Let me redo", "Sorry", "rewrite",
   "my previous reply"): such text is for the operator, never for the student;
 - text with no concrete move or square needs no fact.
@@ -83,6 +84,11 @@ _CORRECTION_OPENING = re.compile(
 _CORRECTION_WORDING = re.compile(
     r"\b(?:correction|rewrit(?:e|ing|ten)|corrected (?:reply|version)"
     r"|(?:my )?(?:previous|earlier|first) (?:reply|answer|message|draft))\b",
+    re.IGNORECASE,
+)
+_LADDER_LABEL = re.compile(
+    r"\b(?:(?:hint )?level [1-3]\b(?: \(?(?:nudge|pointer|consequence)\)?)?:?"
+    r"|(?:nudge|pointer|consequence) level)",
     re.IGNORECASE,
 )
 _NO_CHECK_MARK = str.maketrans("", "", "+#")
@@ -241,6 +247,13 @@ def _error(kind: GroundingErrorKind, message: str) -> GroundingError:
 def validate_reply(reply: CoachReply, context: CoachContext) -> list[GroundingError]:
     shown = {fact.id: fact for fact in visible_facts(context)}
     errors: list[GroundingError] = []
+    if _LADDER_LABEL.search(reply.text):
+        errors.append(
+            _error(
+                GroundingErrorKind.META_COMMENTARY,
+                "Your reply names the hint level. Write only the hint itself, with no label.",
+            )
+        )
     if _CORRECTION_OPENING.search(reply.text) or _CORRECTION_WORDING.search(reply.text):
         errors.append(
             _error(
