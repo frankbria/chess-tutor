@@ -81,6 +81,7 @@ def create_app(
         engine = create_database_engine(settings)
         seed_default_player(engine)
         app.state.engine = engine
+        app.state.settings = settings
         app.state.game_events = GameEvents()
         game_opponent = opponent
         if game_opponent is None and settings.maia_enabled:

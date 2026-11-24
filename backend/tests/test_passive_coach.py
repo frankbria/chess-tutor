@@ -137,6 +137,7 @@ def test_a_blunder_gets_a_grounded_comment(settings: Settings) -> None:
         assert concepts and stored.concepts != "[]"
         [event] = [e for e in harness.events() if isinstance(e, CoachCommentEvent)]
         assert (event.ply, event.text, event.classification) == (7, COMMENT.text, "blunder")
+        assert event.phase == "opening"
         assert (event.fact_ids, event.source) == (["allows:c6e5"], "llm")
     [call] = model.calls
     assert (
@@ -158,6 +159,7 @@ def test_stored_comments_are_served_with_their_classification(settings: Settings
             "kind": "comment",
             "text": COMMENT.text,
             "classification": "blunder",
+            "phase": "opening",
         }
         assert harness.api.get("/games/999/coach/messages").status_code == 404
 

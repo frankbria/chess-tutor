@@ -47,6 +47,7 @@ function Message({ message, san }: { message: CoachMessage; san: string | undefi
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span className="font-semibold uppercase">{KIND_LABEL[message.kind]}</span>
         <span className="font-mono">{moveLabel(message.ply, san)}</span>
+        <span className="rounded border px-1.5 py-0.5 capitalize">{message.phase}</span>
         {badge && (
           <span
             title={badge.label}
@@ -120,24 +121,28 @@ export function CoachPanel({ messages, moves, onSend }: CoachPanelProps) {
         aria-expanded={expanded}
         aria-controls="coach-history"
         onClick={() => setOpen(!expanded)}
-        className="h-auto min-h-12 justify-start gap-2 rounded-xl px-3 py-2 text-left md:pointer-events-none md:cursor-default md:hover:bg-transparent"
+        className="h-auto min-h-12 justify-start gap-2 rounded-xl px-3 py-2 text-left md:hidden"
       >
         <HugeiconsIcon icon={BubbleChatIcon} className="size-5 text-primary" />
         <span className="font-semibold">Coach</span>
         {!expanded && latest && (
-          <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground md:hidden">{latest.text}</span>
+          <span className="min-w-0 flex-1 truncate font-normal text-muted-foreground">{latest.text}</span>
         )}
         {unread > 0 && (
           <span
             data-testid="unread-badge"
-            className="ml-auto rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground md:hidden"
+            className="ml-auto rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-primary-foreground"
           >
             {unread}
             <span className="sr-only"> unread</span>
           </span>
         )}
-        <HugeiconsIcon icon={expanded ? ArrowDown01Icon : ArrowUp01Icon} className="ml-auto size-4 md:hidden" />
+        <HugeiconsIcon icon={expanded ? ArrowDown01Icon : ArrowUp01Icon} className="ml-auto size-4" />
       </Button>
+      <h2 className="hidden min-h-12 items-center gap-2 px-3 py-2 font-semibold md:flex">
+        <HugeiconsIcon icon={BubbleChatIcon} className="size-5 text-primary" />
+        Coach
+      </h2>
       <div aria-live="polite" role="status" className="sr-only" data-testid="coach-live-region">
         {latest?.text}
       </div>
@@ -151,7 +156,7 @@ export function CoachPanel({ messages, moves, onSend }: CoachPanelProps) {
             <li className="text-sm text-muted-foreground">The coach will comment on your notable moves here.</li>
           )}
           {messages.map((message, index) => (
-            <Message key={index} message={message} san={moves[message.ply - 1]} />
+            <Message key={`${message.ply}-${message.role}-${message.kind}-${index}`} message={message} san={moves[message.ply - 1]} />
           ))}
         </ol>
         <form onSubmit={send} className="flex gap-2">

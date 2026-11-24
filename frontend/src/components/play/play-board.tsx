@@ -15,7 +15,7 @@ import { destinationsFrom, isInCheck, isPromotion, lastMoveSquares } from "@/lib
 import { cn } from "@/lib/utils";
 import { ApiError, httpGameApi, type CoachMessage, type GameApi, type GameState } from "@/lib/game-api";
 
-const sameMessage = (a: CoachMessage, b: CoachMessage) => a.ply === b.ply && a.kind === b.kind && a.text === b.text;
+const sameMessage = (a: CoachMessage, b: CoachMessage) => a.ply === b.ply && a.role === b.role && a.kind === b.kind && a.text === b.text;
 
 /** The stream and the history fetch can overlap, so a message is only added once. */
 const withoutRepeats = (known: CoachMessage[], incoming: CoachMessage[]) =>
@@ -59,8 +59,8 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
   useEffect(() => {
     api.getGame(gameId).then(accept, (error: unknown) => setLoadError(errorMessage(error)));
     return api.subscribe(gameId, {
-      onCoachComment: ({ ply, text, classification }) => {
-        const comment: CoachMessage = { ply, role: "coach", kind: "comment", text, classification };
+      onCoachComment: ({ ply, text, classification, phase }) => {
+        const comment: CoachMessage = { ply, role: "coach", kind: "comment", text, classification, phase };
         setCoachMessages((known) => [...known, ...withoutRepeats(known, [comment])]);
       },
       onSnapshot: () => {

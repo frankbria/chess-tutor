@@ -86,6 +86,24 @@ describe("CoachPanel", () => {
     expect(hint).toHaveTextContent("3... Nf6");
   });
 
+  it("labels each message with its game phase", () => {
+    render(<CoachPanel messages={[message({ phase: "opening" }), message({ phase: "endgame" })]} moves={[]} />);
+    const [first, second] = within(screen.getByRole("list", { name: "Coach messages" })).getAllByRole("listitem");
+    expect(first).toHaveTextContent(/opening/);
+    expect(second).toHaveTextContent(/endgame/);
+  });
+
+  it("keeps a player message distinct from a coach message with the same text", () => {
+    render(<CoachPanel messages={[message(), message({ role: "player" })]} moves={[]} />);
+    expect(within(screen.getByRole("list", { name: "Coach messages" })).getAllByRole("listitem")).toHaveLength(2);
+  });
+
+  it("offers the phone toggle as a button but a plain heading from md up", () => {
+    render(<CoachPanel messages={[]} moves={[]} />);
+    expect(screen.getByRole("button", { name: /Coach/ })).toHaveClass("md:hidden");
+    expect(screen.getByRole("heading", { name: "Coach" })).toHaveClass("hidden", "md:flex");
+  });
+
   it("collapses to the latest message with an unread count, and expands to the history", async () => {
     const user = userEvent.setup();
     const { rerender } = render(<CoachPanel messages={[]} moves={[]} />);
@@ -155,13 +173,21 @@ describe("PlayBoard coach panel", () => {
     render(<PlayBoard gameId={1} api={api} />);
     await screen.findByText("That hands your opponent a piece.", { selector: "p" });
 
-    act(() => stream().onCoachComment({ ply: 7, text: "That hands your opponent a piece.", classification: "blunder" }));
-    act(() => stream().onCoachComment({ ply: 9, text: "Nice recovery.", classification: "great" }));
+    act(() => stream().onCoachComment({ ply: 7, text: "That hands your opponent a piece.", classification: "blunder", phase: "middlegame" }));
+    act(() => stream().onCoachComment({ ply: 9, text: "Nice recovery.", classification: "great", phase: "endgame" }));
 
     const items = within(screen.getByRole("list", { name: "Coach messages" })).getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(items[1]).toHaveTextContent("Nice recovery.");
     expect(screen.getByTestId("coach-live-region")).toHaveTextContent("Nice recovery.");
+  });
+
+  it("does not merge a restored player message into a coach message with the same text", async () => {
+    const { api, stream } = fakeApi(game(), [message({ role: "player" })]);
+    render(<PlayBoard gameId={1} api={api} />);
+    await screen.findByText("That hands your opponent a piece.", { selector: "p" });
+    act(() => stream().onCoachComment({ ply: 7, text: "That hands your opponent a piece.", classification: "blunder", phase: "middlegame" }));
+    expect(within(screen.getByRole("list", { name: "Coach messages" })).getAllByRole("listitem")).toHaveLength(2);
   });
 
   it("keeps a comment that streams in while the history is still loading", async () => {
@@ -171,7 +197,7 @@ describe("PlayBoard coach panel", () => {
     render(<PlayBoard gameId={1} api={{ ...api, getCoachMessages: () => pending }} />);
     await screen.findByTestId("board");
 
-    act(() => stream().onCoachComment({ ply: 9, text: "Live one.", classification: "great" }));
+    act(() => stream().onCoachComment({ ply: 9, text: "Live one.", classification: "great", phase: "endgame" }));
     await act(async () => finishHistory([message()]));
 
     const items = within(screen.getByRole("list", { name: "Coach messages" })).getAllByRole("listitem");

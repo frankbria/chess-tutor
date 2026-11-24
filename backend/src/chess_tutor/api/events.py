@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from chess_tutor.games.clock import ClockState
 from chess_tutor.models import GameStatus, PlayerColor
+from chess_tutor.openings.phase import GamePhase
 
 
 class OpponentMoveEvent(BaseModel):
@@ -37,6 +38,7 @@ class CoachCommentEvent(BaseModel):
     ply: int
     text: str
     classification: str
+    phase: GamePhase
     fact_ids: list[str]
     source: str
 

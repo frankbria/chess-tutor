@@ -28,6 +28,8 @@ export interface GameState {
   ended_on_time: boolean;
 }
 
+export type GamePhase = "opening" | "middlegame" | "endgame";
+
 export type CoachMessageKind = "comment" | "question" | "hint" | "answer";
 
 export interface CoachMessage {
@@ -38,10 +40,12 @@ export interface CoachMessage {
   text: string;
   /** The move's label (e.g. "blunder"); null if it was not scored. */
   classification: string | null;
+  /** The phase of the position before the move. */
+  phase: GamePhase;
 }
 
 export interface GameStreamHandlers {
-  onCoachComment: (event: { ply: number; text: string; classification: string }) => void;
+  onCoachComment: (event: { ply: number; text: string; classification: string; phase: GamePhase }) => void;
   onSnapshot: (event: { fen: string; status: string }) => void;
   onOpponentMove: (event: { uci: string; san: string; fen: string; clock: ClockState | null }) => void;
   onGameOver: (event: { result: GameResult; reason: string }) => void;
