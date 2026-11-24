@@ -17,6 +17,7 @@ import { MoveList } from "@/components/play/move-list";
 import { PromotionDialog } from "@/components/play/promotion-dialog";
 import {
   destinationsFrom,
+  gameAfterMove,
   isInCheck,
   isPromotion,
   lastMoveSquares,
@@ -114,6 +115,21 @@ export function PlayBoard({
     }
     setSyncToken((token) => token + 1);
   }, [api, gameId, accept]);
+
+  // Show the player's move at once; the server's answer (with the reply) replaces it.
+  const showMove = (uci: string) => {
+    if (!game) return;
+    const next = gameAfterMove(game, uci);
+    if (!next) return;
+    plyCount.current = next.moves.length;
+    setGame(next);
+  };
+
+  // A failed request leaves the optimistic move on screen, so let the server's shorter list win.
+  const resyncAfterFailure = async () => {
+    plyCount.current = 0;
+    await resync();
+  };
 
   const hasCoachRef = useRef(false);
   useEffect(() => {
@@ -251,13 +267,14 @@ export function PlayBoard({
     setMessage(null);
     setSettling(true);
     setThinking(true);
+    if (proposal) showMove(proposal.uci);
     try {
       accept(await api.lockIn(gameId));
       setProposal(null);
       setCoachMessages(withoutDrafts);
     } catch (error) {
       setMessage(errorMessage(error));
-      await resync();
+      await resyncAfterFailure();
       // The server may still hold the proposal; keep the recovery controls only if it does.
       setProposal(await api.getPendingProposal(gameId).catch(() => proposal));
     } finally {
@@ -270,11 +287,12 @@ export function PlayBoard({
     if (game?.mode === "active") return proposeMove(uci);
     setMessage(null);
     setThinking(true);
+    showMove(uci);
     try {
       accept(await api.playMove(gameId, uci));
     } catch (error) {
       setMessage(errorMessage(error));
-      await resync();
+      await resyncAfterFailure();
     } finally {
       setThinking(false);
     }
@@ -394,7 +412,7 @@ export function PlayBoard({
           destinations={myTurn ? destinationsFrom(game.legal_moves) : undefined}
           syncToken={syncToken}
           proposal={
-            proposal
+            proposal && !thinking
               ? [proposal.uci.slice(0, 2), proposal.uci.slice(2, 4)]
               : undefined
           }
