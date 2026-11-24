@@ -30,6 +30,9 @@ function moveLabel(ply: number, san: string | undefined) {
   return ply % 2 === 1 ? `${number}. ${san}` : `${number}... ${san}`;
 }
 
+const hintLabel = (message: CoachMessage) =>
+  message.hint_level ? `${KIND_LABEL[message.kind]} ${message.hint_level}` : KIND_LABEL[message.kind];
+
 function Message({ message, san }: { message: CoachMessage; san: string | undefined }) {
   return (
     <li
@@ -37,7 +40,7 @@ function Message({ message, san }: { message: CoachMessage; san: string | undefi
       className={cn("flex flex-col gap-1 rounded-md border border-l-4 p-3 text-sm", KIND_STYLE[message.kind])}
     >
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span className="font-semibold uppercase">{KIND_LABEL[message.kind]}</span>
+        <span className="font-semibold uppercase">{hintLabel(message)}</span>
         <span className="font-mono">{moveLabel(message.ply, san)}</span>
         <span className="rounded border px-1.5 py-0.5 capitalize">{message.phase}</span>
         {message.classification && <ClassificationBadge classification={message.classification} />}

@@ -208,6 +208,7 @@ def test_stored_comments_are_served_with_their_classification(settings: Settings
             "text": COMMENT.text,
             "classification": "blunder",
             "phase": "opening",
+            "hint_level": None,
         }
         assert harness.api.get("/games/999/coach/messages").status_code == 404
 
