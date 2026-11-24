@@ -1,7 +1,10 @@
 import asyncio
+import json
 import logging
+import time
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -23,8 +26,23 @@ from chess_tutor.coach.llm import (
     Usage,
 )
 from chess_tutor.coach.prompt import CoachReply
+from chess_tutor.concepts.state import new_state
+from chess_tutor.concepts.taxonomy import Concept
 from chess_tutor.main import create_app
-from chess_tutor.models import CoachMessage, ConceptEvent, ConceptState, Game, Move
+from chess_tutor.models import (
+    CoachMessage,
+    CoachMessageKind,
+    CoachMessageSource,
+    CoachRole,
+    ConceptEvent,
+    ConceptState,
+    ConceptStatus,
+    Game,
+    GameMode,
+    GameStatus,
+    Move,
+    PlayerColor,
+)
 from chess_tutor.settings import Settings
 
 # 1.e4 e5 2.Nf3 Nc6 3.Bc4 Nf6 4.Nxe5?? Nxe5 5.Bxf7+? Kxf7: the 4th and 5th moves are notable.
@@ -112,7 +130,7 @@ def started(settings: Settings, model: LanguageModel, mode: str = "passive") -> 
         yield Harness(app, api, api.post("/games", json=body).json()["id"])
 
 
-def scripted(*replies: CoachReply) -> ScriptedLanguageModel:
+def scripted(*replies: BaseModel) -> ScriptedLanguageModel:
     model = ScriptedLanguageModel(PRICED)
     for reply in replies:
         model.queue_structured(reply)
@@ -180,7 +198,13 @@ def test_ordinary_good_moves_make_no_llm_call(settings: Settings) -> None:
 def test_other_modes_get_no_coaching(settings: Settings, mode: str) -> None:
     model = scripted()
     with started(settings, model, mode) as harness:
-        harness.play(4)
+        if mode == "active":
+            for uci in PLAYER_MOVES[:4]:
+                body = {"uci": uci, "propose": True}
+                assert harness.api.post(f"/games/{harness.game_id}/moves", json=body).is_success
+                assert harness.api.post(f"/games/{harness.game_id}/moves/lock").is_success
+        else:
+            harness.play(4)
 
         assert model.calls == [] and harness.comments() == []
         with Session(harness.app.state.engine) as session:
@@ -299,3 +323,123 @@ def test_two_pending_moves_then_a_resign_still_refresh_the_concepts(settings: Se
         with Session(harness.app.state.engine) as session:
             assert session.scalars(select(ConceptState.concept)).all()
             assert session.get_one(Game, harness.game_id).accuracy is not None
+
+
+def test_a_passive_comment_carries_the_profile_and_the_stored_phrasings(
+    settings: Settings,
+) -> None:
+    model = scripted(COMMENT)
+    with started(settings, model) as harness:
+        with Session(harness.app.state.engine) as session:
+            row = new_state(1, Concept.HANGING_PIECE.value)
+            row.state, row.count = ConceptStatus.RECURRING, 3
+            row.updated_at = datetime(2026, 11, 23, tzinfo=UTC)
+            earlier = Game(
+                player_id=1,
+                mode=GameMode.PASSIVE,
+                player_color=PlayerColor.WHITE,
+                opponent_engine="maia3",
+                opponent_elo=1200,
+                status=GameStatus.FINISHED,
+            )
+            session.add_all([row, earlier])
+            session.flush()
+            session.add(
+                CoachMessage(
+                    game_id=earlier.id,
+                    ply=7,
+                    role=CoachRole.COACH,
+                    kind=CoachMessageKind.COMMENT,
+                    text="Yesterday's wording about loose pieces.",
+                    fact_ids="[]",
+                    source=CoachMessageSource.LLM,
+                    concepts='["hanging_piece"]',
+                )
+            )
+            session.commit()
+
+        harness.play(4)
+
+    payload = json.loads(model.calls[0].messages[0].content)
+    entry = next(item for item in payload["profile"] if item["concept"] == "hanging_piece")
+    assert entry["state"] == "recurring" and "3 games" in entry["style"]
+    assert entry["recent_phrasings"] == ["Yesterday's wording about loose pieces."]
+
+
+class GatedLanguageModel(ScriptedLanguageModel):
+    """Holds its reply until released, so a move can be taken back while the coach is mid-call."""
+
+    def __init__(self) -> None:
+        super().__init__(PRICED)
+        self.queue_structured(COMMENT)
+        self._open = asyncio.Event()
+        self.waiting = False
+
+    def release(self) -> None:
+        self._open.set()
+
+    async def structured[ParsedModel: BaseModel](
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        messages: Sequence[ChatMessage],
+        schema: type[ParsedModel],
+    ) -> StructuredReply[ParsedModel]:
+        self.waiting = True
+        await self._open.wait()
+        return await super().structured(tier=tier, system=system, messages=messages, schema=schema)
+
+
+def test_a_comment_in_flight_for_a_taken_back_move_is_never_stored(settings: Settings) -> None:
+    model = GatedLanguageModel()
+    with started(settings, model) as harness:
+        for uci in PLAYER_MOVES[:4]:
+            assert harness.api.post(f"/games/{harness.game_id}/moves", json={"uci": uci}).is_success
+        deadline = time.monotonic() + 30
+        while not model.waiting and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert harness.api.post(f"/games/{harness.game_id}/takeback").status_code == 200
+        assert harness.api.portal is not None
+        harness.api.portal.call(model.release)
+        harness.api.portal.call(harness.app.state.passive_coach.wait_until_idle)
+
+        assert harness.comments() == []
+        assert not [e for e in harness.events() if isinstance(e, CoachCommentEvent)]
+        with Session(harness.app.state.engine) as session:
+            assert session.scalars(select(ConceptEvent)).all() == []
+
+
+def test_taking_a_move_back_erases_its_stored_comment_and_concepts(settings: Settings) -> None:
+    with started(settings, scripted(COMMENT)) as harness:
+        harness.play(4)
+        assert len(harness.comments()) == 1
+
+        harness.api.post(f"/games/{harness.game_id}/takeback")
+
+        assert harness.comments() == []
+        with Session(harness.app.state.engine) as session:
+            assert session.scalars(select(ConceptEvent)).all() == []
+            assert session.scalars(
+                select(Move.ply).where(Move.game_id == harness.game_id)
+            ).all() == [*range(1, 7)]
+
+
+def test_a_different_move_reusing_the_row_id_does_not_inherit_the_stale_comment(
+    settings: Settings,
+) -> None:
+    model = GatedLanguageModel()
+    with started(settings, model) as harness:
+        game = f"/games/{harness.game_id}"
+        for uci in PLAYER_MOVES[:4]:
+            assert harness.api.post(f"{game}/moves", json={"uci": uci}).is_success
+        deadline = time.monotonic() + 30
+        while not model.waiting and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert harness.api.post(f"{game}/takeback").status_code == 200
+        harness.api.post(f"{game}/moves", json={"uci": "d2d3"})  # SQLite reuses the freed row id
+        assert harness.api.portal is not None
+        harness.api.portal.call(model.release)
+        harness.api.portal.call(harness.app.state.passive_coach.wait_until_idle)
+
+        assert harness.comments() == []

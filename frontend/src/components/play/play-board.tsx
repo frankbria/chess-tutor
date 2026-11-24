@@ -1,6 +1,6 @@
 "use client";
 
-import { Loading03Icon } from "@hugeicons/core-free-icons";
+import { Loading03Icon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -112,6 +112,19 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
     }
   };
 
+  const takeBack = async () => {
+    setMessage(null);
+    try {
+      const next = await api.takeback(gameId);
+      plyCount.current = 0; // a takeback is the one change that shortens the move list
+      accept(next);
+      // The server drops the coach messages of the removed plies, so replace rather than merge.
+      if (hasCoach) setCoachMessages(await api.getCoachMessages(gameId));
+    } catch (error) {
+      setMessage(errorMessage(error));
+    }
+  };
+
   if (!game && loadError) {
     return (
       <div role="alert" className="flex flex-col items-start gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-4 text-destructive">
@@ -188,6 +201,16 @@ export function PlayBoard({ gameId, api = httpGameApi }: { gameId: number; api?:
         )}
         <MoveList moves={game.moves} />
         {hasCoach && <CoachPanel messages={coachMessages} moves={game.moves} />}
+        {game.status === "active" && game.mode === "passive" && (
+          <Button
+            variant="outline"
+            disabled={thinking || game.moves.length === 0}
+            onClick={() => void takeBack()}
+          >
+            <HugeiconsIcon icon={Undo02Icon} data-icon="inline-start" />
+            Takeback
+          </Button>
+        )}
         {game.status === "active" &&
           (confirmingResign ? (
             <div className="flex gap-2">

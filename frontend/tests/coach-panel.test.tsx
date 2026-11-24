@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -46,6 +46,7 @@ function fakeApi(initial: GameState, history: CoachMessage[] = []) {
     playMove: async () => initial,
     resign: async () => initial,
     getCoachMessages: async () => history,
+    takeback: async () => initial,
     subscribe: (_id, next) => {
       handlers = next;
       return () => undefined;
@@ -206,6 +207,24 @@ describe("PlayBoard coach panel", () => {
       expect.stringContaining("hands your opponent"),
       expect.stringContaining("Live one."),
     ]);
+  });
+
+  it("drops the messages of taken-back plies and keeps the Takeback button beside the panel", async () => {
+    const user = userEvent.setup();
+    let history = [message({ ply: 3, text: "Early thought" }), message()];
+    const { api } = fakeApi(game());
+    const takeback = async () => {
+      history = [history[0]];
+      return game({ moves: ["e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6"], side_to_move: "white" });
+    };
+    render(<PlayBoard gameId={1} api={{ ...api, takeback, getCoachMessages: async () => history }} />);
+    await screen.findByText("That hands your opponent a piece.", { selector: "p" });
+
+    await user.click(screen.getByRole("button", { name: "Takeback" }));
+
+    await waitFor(() => expect(screen.queryByText("That hands your opponent a piece.", { selector: "p" })).not.toBeInTheDocument());
+    expect(screen.getByText("Early thought", { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Coach" })).toBeInTheDocument();
   });
 
   it("is shown for active games", async () => {

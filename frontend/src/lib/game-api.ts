@@ -59,6 +59,8 @@ export interface GameApi {
   playMove(id: number, uci: string): Promise<GameState>;
   resign(id: number): Promise<GameState>;
   getCoachMessages(id: number): Promise<CoachMessage[]>;
+  /** Passive games only: undoes the player's last move and the opponent's reply. */
+  takeback(id: number): Promise<GameState>;
   /** Returns the unsubscribe function. */
   subscribe(id: number, handlers: GameStreamHandlers): () => void;
 }
@@ -122,6 +124,7 @@ export const httpGameApi: GameApi = {
   playMove: (id, uci) => request(`/games/${id}/moves`, "POST", { uci }),
   resign: (id) => request(`/games/${id}/resign`, "POST"),
   getCoachMessages: (id) => request<CoachMessage[]>(`/games/${id}/coach/messages`, "GET"),
+  takeback: (id) => request(`/games/${id}/takeback`, "POST"),
   subscribe(id, handlers) {
     const source = new EventSource(`${API_BASE_URL}/games/${id}/coach/stream`);
     const listen = <T,>(name: string, handle: (event: T) => void) =>

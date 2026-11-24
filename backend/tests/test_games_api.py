@@ -340,3 +340,23 @@ def test_opponent_move_event_carries_the_clock_after_the_reply(settings: Setting
     assert event.type == "opponent_move"
     assert event.clock is not None and event.clock.running == "white"
     assert event.clock.white_ms > 5 * 60_000 and event.clock.black_ms > 5 * 60_000
+
+
+def test_takeback_endpoint_undoes_the_last_exchange(api: TestClient) -> None:
+    game = create(api)
+    api.post(f"/games/{game['id']}/moves", json={"uci": "e2e4"})
+
+    response = api.post(f"/games/{game['id']}/takeback")
+
+    assert response.status_code == 200
+    assert response.json()["moves"] == [] and response.json()["side_to_move"] == "white"
+
+
+def test_takeback_is_a_conflict_in_regular_mode_and_with_nothing_to_undo(api: TestClient) -> None:
+    regular = api.post("/games", json={"mode": "regular", "color": "white"}).json()
+    api.post(f"/games/{regular['id']}/moves", json={"uci": "e2e4"})
+    fresh = create(api)
+
+    assert api.post(f"/games/{regular['id']}/takeback").status_code == 409
+    assert api.post(f"/games/{fresh['id']}/takeback").status_code == 409
+    assert api.post("/games/999/takeback").status_code == 404

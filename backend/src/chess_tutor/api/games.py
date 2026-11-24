@@ -27,7 +27,7 @@ Events are published after the service call that caused them, so subscribe befor
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from datetime import datetime
 from typing import Annotated
 
@@ -40,6 +40,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from chess_tutor.api.events import GameEvents, GameOverEvent, OpponentMoveEvent, SnapshotEvent
+from chess_tutor.coach.active import ActiveTutor
 from chess_tutor.coach.passive import PassiveCoach
 from chess_tutor.games.clock import ClockState
 from chess_tutor.games.service import (
@@ -50,8 +51,14 @@ from chess_tutor.games.service import (
     GameService,
     IllegalMoveError,
     InvalidGameSettingsError,
+    NoProposalError,
+    NothingToTakeBackError,
     NotPlayersTurnError,
     OpponentUnavailableError,
+    ProposalPendingError,
+    ProposalRequiredError,
+    TakebackNotAllowedError,
+    WrongModeError,
 )
 from chess_tutor.models import (
     CoachMessage,
@@ -76,6 +83,12 @@ ERROR_STATUS: tuple[tuple[type[GameError], int], ...] = (
     (IllegalMoveError, 422),
     (InvalidGameSettingsError, 422),
     (NotPlayersTurnError, 409),
+    (TakebackNotAllowedError, 409),
+    (NothingToTakeBackError, 409),
+    (WrongModeError, 409),
+    (ProposalRequiredError, 409),
+    (NoProposalError, 409),
+    (ProposalPendingError, 409),
     (GameNotActiveError, 409),
     (OpponentUnavailableError, 503),
 )
@@ -110,9 +123,15 @@ def get_passive_coach(request: Request) -> PassiveCoach:
     return coach
 
 
+def get_active_tutor(request: Request) -> ActiveTutor:
+    tutor: ActiveTutor = request.app.state.active_tutor
+    return tutor
+
+
 Service = Annotated[GameService, Depends(get_game_service)]
 Events = Annotated[GameEvents, Depends(get_game_events)]
 Coach = Annotated[PassiveCoach, Depends(get_passive_coach)]
+Tutor = Annotated[ActiveTutor, Depends(get_active_tutor)]
 
 
 def existing_game_id(game_id: int, service: Service) -> int:
@@ -135,6 +154,25 @@ class CreateGameRequest(BaseModel):
 
 class MoveRequest(BaseModel):
     uci: str = Field(examples=["e2e4"])
+    propose: bool = Field(
+        default=False,
+        description="Active tutor mode: propose the move instead of playing it; "
+        "commit it with POST /games/{id}/moves/lock",
+    )
+
+
+class ProposalResponse(BaseModel):
+    analysis_id: int
+    ply: int
+    uci: str
+    san: str
+    rethinks: int = Field(description="Proposals discarded so far for this move")
+    win_probability_before: float | None = Field(description="Mover's chance in percent")
+    win_probability_after: float | None
+
+
+class RethinkResponse(BaseModel):
+    rethinks: int = Field(description="Proposals discarded so far for this move")
 
 
 class GameResponse(BaseModel):
@@ -254,12 +292,11 @@ async def get_game(game_id: int, service: Service) -> GameResponse:
     return describe(service, await service.check_flag(game_id))
 
 
-@router.post("/{game_id}/moves")
-async def play_move(
-    game_id: int, body: MoveRequest, service: Service, events: Events, coach: Coach
+async def commit_and_publish(
+    game_id: int, commit: Awaitable[Game], service: Service, events: Events, coach: Coach
 ) -> GameResponse:
     plies_before = len(service.get_board(game_id).move_stack)
-    game = await service.play_move(game_id, body.uci)
+    game = await commit
     if game.status is GameStatus.FINISHED:
         await coach.wait_for_game(
             game_id
@@ -268,12 +305,53 @@ async def play_move(
     return describe(service, game)
 
 
+@router.post("/{game_id}/moves")
+async def play_move(
+    game_id: int,
+    body: MoveRequest,
+    service: Service,
+    events: Events,
+    coach: Coach,
+    tutor: Tutor,
+) -> GameResponse | ProposalResponse:
+    if body.propose:
+        proposal = await tutor.propose(game_id, body.uci)
+        return ProposalResponse(
+            analysis_id=proposal.id,
+            ply=proposal.ply,
+            uci=body.uci,
+            san=proposal.san,
+            rethinks=proposal.rethinks,
+            win_probability_before=proposal.win_probability_before,
+            win_probability_after=proposal.win_probability_after,
+        )
+    return await commit_and_publish(
+        game_id, service.play_move(game_id, body.uci), service, events, coach
+    )
+
+
+@router.post("/{game_id}/moves/lock")
+async def lock_in(game_id: int, service: Service, events: Events, coach: Coach) -> GameResponse:
+    service.get_game(game_id)  # a missing game is a 404 before any coroutine is created
+    return await commit_and_publish(game_id, service.lock_in(game_id), service, events, coach)
+
+
+@router.post("/{game_id}/moves/rethink")
+async def rethink(game_id: int, service: Service) -> RethinkResponse:
+    return RethinkResponse(rethinks=await service.rethink(game_id))
+
+
 @router.post("/{game_id}/resign")
 async def resign(game_id: int, service: Service, events: Events, coach: Coach) -> GameResponse:
     game = service.resign(game_id)
     await coach.wait_for_game(game_id)
     events.publish(game_id, game_over_event(service.get_board(game_id), game))
     return describe(service, game)
+
+
+@router.post("/{game_id}/takeback")
+async def takeback(game_id: int, service: Service) -> GameResponse:
+    return describe(service, await service.takeback(game_id))
 
 
 @router.get("/{game_id}/pgn", response_class=PlainTextResponse)

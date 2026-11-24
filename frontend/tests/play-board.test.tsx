@@ -53,6 +53,7 @@ function fakeApi(initial: GameState, overrides: Partial<GameApi> = {}) {
     playMove: async () => initial,
     resign: async () => ({ ...initial, status: "finished", result: "0-1" }),
     getCoachMessages: async () => [],
+    takeback: async () => initial,
     subscribe: (_id, next) => {
       handlers = next;
       return () => undefined;
@@ -144,6 +145,32 @@ describe("PlayBoard", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Resign" }));
     await userEvent.click(screen.getByRole("button", { name: "Confirm resign" }));
     expect(await screen.findByRole("dialog", { name: "You lost" })).toBeInTheDocument();
+  });
+
+  it("offers a takeback in Passive games only and shows the shortened game afterwards", async () => {
+    const played = game({ mode: "passive", moves: ["e4", "e5"] });
+    const { api } = fakeApi(played, { takeback: async () => game({ mode: "passive" }) });
+    render(<PlayBoard gameId={1} api={api} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Takeback" }));
+    expect(await screen.findByText("No moves yet.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Takeback" })).toBeDisabled();
+  });
+
+  it.each(["regular", "active"] as const)("does not offer a takeback in %s games", async (mode) => {
+    const { api } = fakeApi(game({ mode, moves: ["e4", "e5"] }));
+    render(<PlayBoard gameId={1} api={api} />);
+    await screen.findByTestId("board");
+    expect(screen.queryByRole("button", { name: "Takeback" })).not.toBeInTheDocument();
+  });
+
+  it("shows the server's reason when a takeback is refused", async () => {
+    const refuse = async () => {
+      throw new ApiError(409, "the player has not moved yet");
+    };
+    const { api } = fakeApi(game({ mode: "passive", moves: ["e4", "e5"] }), { takeback: refuse });
+    render(<PlayBoard gameId={1} api={api} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Takeback" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("the player has not moved yet");
   });
 
   it("shows both clocks from the server state, the player's below the opponent's", async () => {
