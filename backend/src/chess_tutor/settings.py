@@ -40,6 +40,9 @@ class RatingWeights(BaseModel):
     regular: float = 1.0
     passive_tutor: float = 0.75
     active_tutor: float = 0.5
+    # Each takeback cuts the game's weight by this share of the mode weight, down to the floor.
+    takeback_penalty: float = 0.1
+    takeback_floor: float = 0.5
 
 
 class Thresholds(BaseModel):
@@ -94,6 +97,9 @@ class Settings(BaseSettings):
     coach_comment_every_n_moves: int = Field(
         default=1, ge=1
     )  # passive mode; 1 comments on every notable move
+    active_remark_every_n_proposals: int = Field(
+        default=5, ge=1
+    )  # active mode; at most one board-feature remark on a fine move per this many proposals
 
     thresholds: Thresholds = Thresholds()
 

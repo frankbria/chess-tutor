@@ -40,7 +40,13 @@ describe("httpGameApi", () => {
   it("fetches a game and posts moves as JSON", async () => {
     expect((await httpGameApi.getGame(7)).id).toBe(7);
     await httpGameApi.resign(7);
-    expect(requests.map((r) => `${r.method} ${r.url}`)).toEqual(["GET /games/7", "POST /games/7/resign"]);
+    await httpGameApi.takeback(7);
+    expect(requests.map((r) => `${r.method} ${r.url}`)).toEqual(["GET /games/7", "POST /games/7/resign", "POST /games/7/takeback"]);
+  });
+
+  it("fetches the persisted coach messages", async () => {
+    await httpGameApi.getCoachMessages(7);
+    expect(requests.at(-1)).toMatchObject({ method: "GET", url: "/games/7/coach/messages" });
   });
 
   it("throws an ApiError carrying the status and server detail", async () => {

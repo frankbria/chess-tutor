@@ -15,7 +15,7 @@ from chess_tutor.api.games import router as games_router
 from chess_tutor.api.review import router as review_router
 from chess_tutor.api.settings import router as settings_router
 from chess_tutor.api.settings import stored_maia_model
-from chess_tutor.coach.active import ActiveTutor
+from chess_tutor.coach.active import ActiveTutor, HintCoach
 from chess_tutor.coach.llm import LanguageModel, create_language_model
 from chess_tutor.coach.passive import PassiveCoach
 from chess_tutor.concepts.taxonomy import CONCEPTS, Concept
@@ -125,10 +125,11 @@ def create_app(
             raise
         app.state.stockfish_pool = pool
         pacing = None if predictor is None else OpponentPacing(settings, predictor)
+        coach_model = language_model or create_language_model(settings)
         passive_coach = PassiveCoach(
             engine,
             pool,
-            language_model or create_language_model(settings),
+            coach_model,
             app.state.game_events,
             settings,
         )
@@ -136,10 +137,15 @@ def create_app(
             engine, game_opponent, pacing, settings.thresholds, observer=passive_coach
         )
         app.state.passive_coach = passive_coach
-        app.state.active_tutor = ActiveTutor(app.state.game_service, pool)
+        hint_coach = HintCoach(
+            engine, app.state.game_service, coach_model, app.state.game_events, settings
+        )
+        app.state.hint_coach = hint_coach
+        app.state.active_tutor = ActiveTutor(app.state.game_service, pool, hint_coach)
         try:
             yield
         finally:
+            await hint_coach.close()
             await passive_coach.close()
             await pool.close()
             if predictor is not None:

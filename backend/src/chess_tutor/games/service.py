@@ -16,6 +16,8 @@ from chess_tutor.engines.opponent import OpponentEngine
 from chess_tutor.engines.think_time import OpponentPacing
 from chess_tutor.games.clock import ClockState
 from chess_tutor.models import (
+    CoachMessage,
+    ConceptEvent,
     Game,
     GameMode,
     GameResult,
@@ -97,6 +99,14 @@ ELO_STEP = 50
 
 
 class NotPlayersTurnError(GameError):
+    pass
+
+
+class TakebackNotAllowedError(GameError):
+    pass
+
+
+class NothingToTakeBackError(GameError):
     pass
 
 
@@ -264,6 +274,16 @@ class GameService:
             proposal.win_probability_after = win_probability_after
             session.commit()
 
+    def is_current_proposal(self, proposal_id: int, ply: int, uci: str, rethinks: int) -> bool:
+        """False once the proposal was rethought, locked in, or its game ended."""
+        with Session(self._engine) as session:
+            proposal = session.get(MoveProposal, proposal_id)
+            return proposal is not None and (proposal.ply, proposal.uci, proposal.rethinks) == (
+                ply,
+                uci,
+                rethinks,
+            )
+
     def withdraw_proposal(self, proposal_id: int, uci: str) -> None:
         """Back out a proposal whose analysis failed, keeping the rethink count."""
         with Session(self._engine) as session:
@@ -321,6 +341,35 @@ class GameService:
             self._push(session, game, board, move)
             session.commit()
             return game
+
+    async def takeback(self, game_id: int) -> Game:
+        """Undo the player's last move and the reply to it; Passive tutor games only.
+
+        The moves are deleted with everything stored against them, so a taken-back move can never
+        count as played. The count lowers the game's rating weight when it finishes.
+        """
+        async with self._move_lock:
+            with Session(self._engine, expire_on_commit=False) as session:
+                game = self._active_game(session, game_id)
+                if game.mode is not GameMode.PASSIVE:
+                    raise TakebackNotAllowedError("takebacks are only allowed in Passive mode")
+                player_is_white = game.player_color is PlayerColor.WHITE
+                player_plies = [
+                    stored.ply
+                    for stored in self._moves(session, game_id)
+                    if (stored.ply % 2 == 1) == player_is_white
+                ]
+                if not player_plies:
+                    raise NothingToTakeBackError("the player has not moved yet")
+                for table in (Move, ConceptEvent, CoachMessage):
+                    session.execute(
+                        delete(table).where(table.game_id == game_id, table.ply >= player_plies[-1])
+                    )
+                game.takeback_count += 1
+                opening = lookup_opening(self._board(session, game_id))
+                game.opening_eco, game.opening_name = opening if opening else (None, None)
+                session.commit()
+                return game
 
     def resign(self, game_id: int) -> Game:
         with Session(self._engine, expire_on_commit=False) as session:
